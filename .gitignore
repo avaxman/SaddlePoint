@@ -30,3 +30,6 @@
 *.exe
 *.out
 *.app
+
+/benchmark/rosenbrock/build/
+/benchmark/linear_function/build/
