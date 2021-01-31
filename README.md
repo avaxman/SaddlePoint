@@ -1,7 +1,7 @@
 # SaddlePoint
-SaddlePoint is a templated header-only optimization package based on Eigen, which is meant for configurable optimization. The idea is that one could plug-in concept classes that change much of the behaviour of the optimizer. For instance, the linear solver itself.
+SaddlePoint is a templated header-only optimization package based on Eigen, that is meant for configurable optimization. The idea is that one could plug-in concept classes that change much of the behaviour of the optimizer. For instance, the linear solver itself.
 
-To make and  the benchmak example, do
+To make and  the benchmark example, do
 
 ```
 cd benchmark/EXAMPLE
