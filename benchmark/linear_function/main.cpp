@@ -1,10 +1,9 @@
 #include <SaddlePoint/LMSolver.h>
 #include <SaddlePoint/EigenSolverWrapper.h>
 #include <SaddlePoint/check_traits.h>
+#include <SaddlePoint/DiagonalDamping.h>
 #include <iostream>
 #include <Eigen/core>
-
-
 
 
 typedef SaddlePoint::EigenSolverWrapper<Eigen::SimplicialLLT<Eigen::SparseMatrix<double> > > LinearSolver;
@@ -15,10 +14,9 @@ typedef SaddlePoint::EigenSolverWrapper<Eigen::SimplicialLLT<Eigen::SparseMatrix
 class LineaFunctionTraits{
 public:
     Eigen::VectorXi JRows, JCols;
-    Eigen::VectorXd JVals;
     int xSize;
-    Eigen::VectorXd EVec;
-    
+    int ESize;
+
     Eigen::MatrixXd A;
     
     void init()
@@ -31,15 +29,12 @@ public:
 
         JRows.resize(m*n);
         JCols.resize(m*n);
-        JVals.resize(m*n);
         for (int i=0;i<m;i++){
             for (int j=0;j<n;j++){
                 JRows(n*i+j)=i;
                 JCols(n*i+j)=j;
-                JVals(n*i+j)=A(i,j);
             }
         }
-        EVec.resize(m);
     }
     
     void initial_solution(Eigen::VectorXd& x0){
@@ -47,11 +42,19 @@ public:
     }
     void pre_iteration(const Eigen::VectorXd& prevx){}
     bool post_iteration(const Eigen::VectorXd& x){return false;}
-    void update_energy(const Eigen::VectorXd& x){
+    void objective(const Eigen::VectorXd& x, Eigen::VectorXd& EVec){
+      if (EVec.size()!=m)
+        EVec.resize(m);
         EVec<<A*x-Eigen::VectorXd::Constant(m, 1.0);
     }
-    void update_jacobian(const Eigen::VectorXd& x){
-        //jacobian is constant
+    void jacobian(const Eigen::VectorXd& x, Eigen::VectorXd& JVals){
+        if (JVals.size()!=m*n)
+          JVals.resize(m*n);
+        for (int i=0;i<m;i++){
+            for (int j=0;j<n;j++){
+                JVals(n*i+j)=A(i,j);
+            }
+        }
     }
     bool post_optimization(const Eigen::VectorXd& x){
         //std::cout<<"x:"<<x<<std::endl;
@@ -63,7 +66,9 @@ public:
 
 LineaFunctionTraits slTraits;
 LinearSolver lSolver;
-SaddlePoint::LMSolver<LinearSolver,LineaFunctionTraits> lmSolver;
+SaddlePoint::DiagonalDamping<LineaFunctionTraits> dTraits;
+SaddlePoint::LMSolver<LinearSolver,LineaFunctionTraits, SaddlePoint::DiagonalDamping<LineaFunctionTraits> > lmSolver;
+
 
 
 int main(int argc, char *argv[])
@@ -74,7 +79,7 @@ int main(int argc, char *argv[])
     using namespace Eigen;
     
     slTraits.init();
-    lmSolver.init(&lSolver, &slTraits, 100);
+    lmSolver.init(&lSolver, &slTraits, &dTraits, 1000);
     SaddlePoint::check_traits(slTraits);
     lmSolver.solve(true);
     

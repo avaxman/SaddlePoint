@@ -17,15 +17,15 @@
 namespace SaddlePoint
   {
   
-  template<class LinearSolver, class SolverTraits>
+  template<class LinearSolver, class SolverTraits, class DampingTraits>
   class LMSolver{
   public:
     Eigen::VectorXd x;      //current solution; always updated
     Eigen::VectorXd prevx;  //the solution of the previous iteration
     Eigen::VectorXd x0;     //the initial solution to the system
     Eigen::VectorXd d;             //the direction taken.
-    Eigen::VectorXd currEnergy;    //the current value of the energy
-    Eigen::VectorXd prevEnergy;    //the previous value of the energy
+    Eigen::VectorXd currObjective;    //the current value of the energy
+    Eigen::VectorXd prevObjective;    //the previous value of the energy
     
     Eigen::VectorXi HRows, HCols;  //(row,col) pairs for H=J^T*J matrix
     Eigen::VectorXd HVals;      //values for H matrix
@@ -33,6 +33,9 @@ namespace SaddlePoint
     
     LinearSolver* LS;
     SolverTraits* ST;
+    DampingTraits* DT;
+    
+    
     int maxIterations;
     double xTolerance;
     double fooTolerance;
@@ -207,11 +210,12 @@ namespace SaddlePoint
     
     //returns the values of M^T*M+miu*I by multiplication and aggregating from Single2double list.
     //prerequisite - oS is allocated
-    void MatrixValues(const Eigen::VectorXi& oI,
+    
+    void set_lhs_matrix(const Eigen::VectorXi& oI,
                       const Eigen::VectorXi& oJ,
                       const Eigen::VectorXd& iS,
                       const Eigen::MatrixXi& S2D,
-                      const double miu,
+                      const Eigen::VectorXd& lambda,
                       Eigen::VectorXd& oS)
     {
       for (int i=0;i<S2D.rows();i++)
@@ -219,12 +223,12 @@ namespace SaddlePoint
       
       //adding miu*I
       for (int i=S2D.rows();i<oI.rows();i++)
-        oS(i)=miu;
-      
+        oS(i)=lambda(i-S2D.rows());
+
     }
     
     //returns M^t*ivec by (I,J,S) representation
-    void MultiplyAdjointVector(const Eigen::VectorXi& iI,
+    void multiply_adjoint_vector(const Eigen::VectorXi& iI,
                                const Eigen::VectorXi& iJ,
                                const Eigen::VectorXd& iS,
                                const Eigen::VectorXd& iVec,
@@ -242,12 +246,14 @@ namespace SaddlePoint
     
     void init(LinearSolver* _LS,
               SolverTraits* _ST,
+              DampingTraits* _DT,
               int _maxIterations=100,
               double _xTolerance=10e-9,
               double _fooTolerance=10e-9){
       
       LS=_LS;
       ST=_ST;
+      DT=_DT;
       maxIterations=_maxIterations;
       xTolerance=_xTolerance;
       fooTolerance=_fooTolerance;
@@ -261,8 +267,8 @@ namespace SaddlePoint
       x.resize(ST->xSize);
       x0.resize(ST->xSize);
       prevx.resize(ST->xSize);
-      currEnergy.resize(ST->EVec.size());
-      prevEnergy.resize(ST->EVec.size());
+      currObjective.resize(ST->ESize);
+      currObjective.resize(ST->ESize);
       
       //TestMatrixOperations();
     }
@@ -276,39 +282,35 @@ namespace SaddlePoint
       prevx<<x0;
       int currIter=0;
       bool stop=false;
-      double currError, prevError;
+      //double currError, prevError;
       VectorXd rhs(ST->xSize);
       VectorXd direction;
       if (verbose)
         cout<<"******Beginning Optimization******"<<endl;
       
-      double tau=10e-3;
-      
       //estimating initial miu
-      double miu=0.0;
-      ST->update_jacobian(prevx);
-      MatrixValues(HRows, HCols, ST->JVals, S2D, miu, HVals);
-      for (int i=0;i<HRows.size();i++)
-        if (HRows(i)==HCols(i))  //on the diagonal
-          miu=(miu < HVals(i) ? HVals(i) : miu);
-      miu*=tau;
-      double initmiu=miu;
-      if (verbose)
-        cout<<"initial miu: "<<miu<<endl;
-      double beta=2.0;
-      double nu=beta;
-      double gamma=3.0;
+      VectorXd modifyVector;
+      VectorXd JVals, EVec;
+      ST->objective(prevx, EVec);
+      ST->jacobian(prevx, JVals);
+      set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
+      //cout<<"HVals: "<<HVals<<endl;
+      DT->init(HRows, HCols, HVals, x0, modifyVector);
+      //cout<<"modifyVector: "<<modifyVector<<endl;
+      set_lhs_matrix(HRows, HCols, JVals, S2D, modifyVector, HVals);
+      //cout<<"HRows: "<<HRows<<endl;
+      //cout<<"HCols: "<<HCols<<endl;
+      //cout<<"HVals: "<<HVals<<endl;
       do{
         currIter=0;
         stop=false;
         do{
           ST->pre_iteration(prevx);
-          ST->update_energy(prevx);
-          ST->update_jacobian(prevx);
+        
           if (verbose)
-            cout<<"Initial Energy for Iteration "<<currIter<<": "<<ST->EVec.squaredNorm()<<endl;
-          MatrixValues(HRows, HCols, ST->JVals, S2D,  miu, HVals);
-          MultiplyAdjointVector(ST->JRows, ST->JCols, ST->JVals, -ST->EVec, rhs);
+            cout<<"Initial objective for Iteration "<<currIter<<": "<<EVec.squaredNorm()<<endl;
+          
+          multiply_adjoint_vector(ST->JRows, ST->JCols, JVals, -EVec, rhs);
           
           double firstOrderOptimality=rhs.template lpNorm<Infinity>();
           if (verbose)
@@ -341,31 +343,30 @@ namespace SaddlePoint
               cout<<"Stopping since direction magnitude small."<<endl;
             break;
           }
-          VectorXd tryx=prevx+direction;
-          ST->update_energy(prevx);
-          double prevE=ST->EVec.squaredNorm();
-          ST->update_energy(tryx);
-          double currE=ST->EVec.squaredNorm();
           
-          double rho=(prevE-currE)/(direction.dot(miu*direction+rhs));
-          if (rho>0){
-            x=tryx;
-            //if (verbose){
-            //cout<<"Energy: "<<currE<<endl;
-            //    cout<<"1.0-(beta-1.0)*pow(2.0*rho-1.0,3): "<<1.0-(beta-1.0)*pow(2.0*rho-1.0,3)<<endl;
-            //}
-            miu*=(1.0/gamma > 1.0-(beta-1.0)*pow(2.0*rho-1.0,3) ? 1.0/gamma : 1.0-(beta-1.0)*pow(2.0*rho-1.0,3));
-            nu=beta;
-            //if (verbose)
-            //    cout<<"rho, miu, nu: "<<rho<<","<<miu<<","<<nu<<endl;
-          } else {
-            x=prevx;
-            miu = miu*nu;
-            nu=2*nu;
-            //if (verbose)
-            //    cout<<"rho, miu, nu: "<<rho<<","<<miu<<","<<nu<<endl;
-          }
+          ST->objective(prevx,EVec);
+          double prevEnergy2=EVec.squaredNorm();
+          ST->objective(prevx+direction,EVec);
+          double newEnergy2=EVec.squaredNorm();
           
+          if (prevEnergy2>newEnergy2){
+              x=prevx+direction;
+  
+          }else
+              x=prevx;
+          
+          
+          ST->objective(x, EVec);
+          ST->jacobian(x, JVals);
+          set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
+          DT->update(*ST, HRows, HCols, HVals,  prevx, direction, modifyVector);
+          set_lhs_matrix(HRows, HCols, JVals, S2D,  modifyVector, HVals);
+        
+          //else
+           // x=prevx;
+          
+           //cout<<"modifyVector: "<<modifyVector<<endl;
+              
           //The SolverTraits can order the optimization to stop by giving "true" of to continue by giving "false"
           if (ST->post_iteration(x)){
             if (verbose)
