@@ -33,3 +33,4 @@
 
 /benchmark/rosenbrock/build/
 /benchmark/linear_function/build/
+benchmark/seamless_integration/build/
