@@ -48,9 +48,9 @@ int main(int argc, char *argv[])
   igl::deserialize(slTraits.integerIndices,"integerIndices",filename);
   
   slTraits.init();
-  lmSolver.init(&lSolver, &slTraits, &dTraits, 1000);
-  SaddlePoint::check_traits(slTraits);
-  lmSolver.solve(true);
+  //lmSolver.init(&lSolver, &slTraits, &dTraits, 1000);
+  //SaddlePoint::check_traits(slTraits);
+  //lmSolver.solve(true);
   
   return 0;
 }
