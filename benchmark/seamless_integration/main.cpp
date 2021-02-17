@@ -48,9 +48,11 @@ int main(int argc, char *argv[])
   igl::deserialize(slTraits.integerIndices,"integerIndices",filename);
   
   slTraits.init();
-  //lmSolver.init(&lSolver, &slTraits, &dTraits, 1000);
-  //SaddlePoint::check_traits(slTraits);
-  //lmSolver.solve(true);
+  Eigen::VectorXd JVals;
+  //slTraits.jacobian(slTraits.initXandFieldSmall, JVals);
+  lmSolver.init(&lSolver, &slTraits, &dTraits, 1000);
+  SaddlePoint::check_traits(slTraits, slTraits.initXandFieldSmall);
+  lmSolver.solve(true);
   
   return 0;
 }

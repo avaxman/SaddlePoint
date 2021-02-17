@@ -16,13 +16,13 @@ namespace SaddlePoint
   {
   //This function checks the Jacobian of a traits class that is put for optimization by approximate finite differences, and reports the difference. It is important to use after coding, but it is not for the actual optimization process, since it is really brute-force and slow.
   template<class SolverTraits>
-  void check_traits(SolverTraits& Traits){
+  void check_traits(SolverTraits& Traits, const Eigen::VectorXd& CurrSolution){
     using namespace Eigen;
     using namespace std;
     cout<<"WARNING: FE gradient checking, reducing performance!!!"<<endl;
     cout<<"******************************************************"<<endl;
-    VectorXd CurrSolution(Traits.xSize);
-    CurrSolution<<VectorXd::Random(Traits.xSize, 1);
+    //VectorXd CurrSolution(Traits.xSize);
+    //CurrSolution<<VectorXd::Random(Traits.xSize, 1);
     
     cout<<"Solution Size: "<<Traits.xSize<<endl;
     

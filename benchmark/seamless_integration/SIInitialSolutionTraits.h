@@ -42,77 +42,6 @@ public:
   void pre_iteration(const Eigen::VectorXd& prevx){}
   bool post_iteration(const Eigen::VectorXd& x){return false;}
   
-  
-  /*
-   function [f,g]=initialPoissonObjective(xAndCurrFieldSmall,initField,sizeX, UExt,G2, N, FN, fixedIndices, fixedValues, paramLength, s, wintegration,wclose, wconst, wbarrier, IImagField, JImagField, origFieldVolumes)
-
-   xAndCurrField = UExt*xAndCurrFieldSmall;
-   xcurr=xAndCurrField(1:sizeX);
-   currField=xAndCurrField(sizeX+1:end);
-
-   fIntegration = (currField - paramLength*G2*xcurr);
-   gIntegration = [-paramLength*G2, speye(length(currField))]*UExt;
-
-   fClose = currField-initField;
-   gClose = sparse(1:length(currField), sizeX+1:length(xAndCurrField), ones(1,length(currField)), length(currField), length(xAndCurrField))*UExt;
-
-   %fLinConst=CExt*xAndCurrField;
-   %gLinConst=CExt;
-
-   fConst = xcurr(fixedIndices)-fixedValues;
-   gConst = sparse((1:length(fixedIndices))', fixedIndices, ones(length(fixedIndices),1), length(fixedIndices),length(xAndCurrField))*UExt;
-
-   nf = length(FN);
-
-   fBarrier = zeros(N*nf,1);
-   fBarrierDerivative= zeros(N*nf,1);
-
-   SImagField=IImagField;
-
-   for i=0:nf-1
-       varOffset=i*2*N+1;
-       barOffset=i*N+1;
-       faceField = reshape(currField(varOffset:varOffset+2*N-1),2,N)';
-       faceFieldNext = faceField([2:N,1],:);
-       
-       %tripleProducts = dot(repmat(FN(i+1,:),N,1), cross(faceField, faceField([2:end,1],:)),2);
-       imagProduct = (faceField(:,1).*faceFieldNext(:, 2) - faceField(:,2).*faceFieldNext(:, 1))./origFieldVolumes(i+1,:)';
-       barResult = (imagProduct/s).^3 - 3*(imagProduct/s).^2 + 3*(imagProduct/s);
-       barResult2 = 1./barResult -1;
-       barResult2(imagProduct<=0)=Inf;
-       barResult2(imagProduct>=s)=0;
-       fBarrier(barOffset:barOffset+N-1)=barResult2;
-       
-       barDerivative=(3*(imagProduct.^2/s^3) -6*(imagProduct/s^2) + 3/s)./origFieldVolumes(i+1,:)';
-       barDerivative(imagProduct<=0)=Inf;
-       barDerivative(imagProduct>=s)=0;
-       fBarrierDerivative(barOffset:barOffset+N-1) =  barDerivative;
-       
-       %ImagField(barOffset:barOffset+N-1,1:2)=reshape(varOffset:varOffset+2*N-1, 2, N)';
-       %JImagField(barOffset:barOffset+N-1,3:4)=JImagField([barOffset+1:barOffset+N-1,barOffset],1:2);
-       
-       SImagField(barOffset:barOffset+N-1,:)=[faceFieldNext(:, 2), -faceFieldNext(:, 1), -faceField(:,2),faceField(:,1)];
-   end
-
-   if (nargout<2) %don't compute jacobian
-       f=[wintegration*fIntegration;wclose*fClose;wconst*fConst;wbarrier*fBarrier];
-       return
-   end
-
-
-   gImagField=sparse(IImagField, JImagField, SImagField, N*nf, length(currField));
-   gFieldReduction = gClose;
-   barDerVec=-fBarrierDerivative./(fBarrier.^2);
-   barDerVec(isinf(barDerVec))=0;
-   barDerVec(isnan(barDerVec))=0;
-   gBarrierFunc = spdiags(barDerVec, 0, length(fBarrier), length(fBarrier));   %./fBarrier.^2
-   gBarrier=gBarrierFunc*gImagField*gFieldReduction;
-   %f=sum(wobj*fAb.^2)+sum(wconst*fConst.^2)+sum(wbarrier*fBarrier.^2);
-   %g=2*wobj*gAb'*fAb+2*wconst*gConst'*fConst+2*wbarrier*gBarrier'*fBarrier;
-   f=[wintegration*fIntegration;wclose*fClose;wconst*fConst;wbarrier*fBarrier];
-   g=[wintegration*gIntegration;wclose*gClose;wconst*gConst;wbarrier*gBarrier];
-   end*/
-   
   void objective(const Eigen::VectorXd& xAndCurrFieldSmall,  Eigen::VectorXd& EVec){
     using namespace std;
     using namespace Eigen;
@@ -120,7 +49,7 @@ public:
     VectorXd xAndCurrField = UExt*xAndCurrFieldSmall;
     VectorXd xcurr=xAndCurrField.head(x0.size());
     VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
-
+    
     VectorXd fIntegration = (currField - paramLength*G2*xcurr);
     VectorXd fClose = currField-rawField2Vec;
     
@@ -134,7 +63,7 @@ public:
       for (int j=0;j<N;j++){
         RowVector2d currVec=currField.segment(2*N*i+2*j,2);
         RowVector2d nextVec=currField.segment(2*N*i+2*((j+1)%N),2);
-        double imagProduct = (currVec(0)*nextVec(1) - currVec(1)*currVec(0))/origFieldVolumes(i,j);
+        double imagProduct = (currVec(0)*nextVec(1) - currVec(1)*nextVec(0))/origFieldVolumes(i,j);
         double barResult = (imagProduct/s)*(imagProduct/s)*(imagProduct/s) - 3.0*(imagProduct/s)*(imagProduct/s) + 3.0*(imagProduct/s);
         double barResult2 = 1.0/barResult - 1.0;
         if (imagProduct<=0) barResult2 = std::numeric_limits<double>::infinity();
@@ -145,6 +74,8 @@ public:
     
     EVec.conservativeResize(fIntegration.size()+fClose.size()+fConst.size()+fBarrier.size());
     EVec<<fIntegration*wIntegration,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
+    //EVec.conservativeResize(fBarrier.size());
+    //EVec<<fBarrier;
   }
   
   
@@ -155,14 +86,14 @@ public:
     VectorXd xAndCurrField = UExt*xAndCurrFieldSmall;
     VectorXd xcurr=xAndCurrField.head(x0.size());
     VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
-
+    
     //integration
     SparseMatrix<double> gIntegration;
     vector<Triplet<double>> gIntegrationTriplets;
-     for (int k=0; k<G2.outerSize(); ++k)
-       for (SparseMatrix<double>::InnerIterator it(G2,k); it; ++it)
-         gIntegrationTriplets.push_back(Triplet<double>(it.row(), it.col(), -paramLength*it.value()));
-       
+    for (int k=0; k<G2.outerSize(); ++k)
+      for (SparseMatrix<double>::InnerIterator it(G2,k); it; ++it)
+        gIntegrationTriplets.push_back(Triplet<double>(it.row(), it.col(), -paramLength*it.value()));
+    
     for (int i=0;i<currField.size();i++)
       gIntegrationTriplets.push_back(Triplet<double>(i,G2.cols()+i,1.0));
     
@@ -183,51 +114,72 @@ public:
     SparseMatrix<double> gConst(fixedIndices.size(), xAndCurrField.size());
     vector<Triplet<double>> gConstTriplets;
     for (int i=0;i<fixedIndices.size();i++)
-      gCloseTriplets.push_back(Triplet<double>(i,fixedIndices(i),1.0));
+      gConstTriplets.push_back(Triplet<double>(i,fixedIndices(i),1.0));
     
     gConst.setFromTriplets(gConstTriplets.begin(), gConstTriplets.end());
-    gConst=gConst*
-    UExt;
+    gConst=gConst*UExt;
     
     //barrier
-    VectorXd fBarrierDerivative= VectorXd::Zero(N*FN.rows(),1);
+    VectorXd splineDerivative= VectorXd::Zero(N*FN.rows(),1);
     VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
+    VectorXd barSpline = VectorXd::Zero(N*FN.rows());
     SImagField.conservativeResize(IImagField.rows(), IImagField.cols());
     for (int i=0;i<FN.rows();i++){
       for (int j=0;j<N;j++){
         RowVector2d currVec=currField.segment(2*N*i+2*j,2);
         RowVector2d nextVec=currField.segment(2*N*i+2*((j+1)%N),2);
-        double imagProduct = (currVec(0)*nextVec(1) - currVec(1)*currVec(0))/origFieldVolumes(i,j);
+        double imagProduct = (currVec(0)*nextVec(1) - currVec(1)*nextVec(0))/origFieldVolumes(i,j);
         double barResult = (imagProduct/s)*(imagProduct/s)*(imagProduct/s) - 3.0*(imagProduct/s)*(imagProduct/s) + 3.0*(imagProduct/s);
         double barResult2 = 1.0/barResult - 1.0;
         if (imagProduct<=0) barResult2 = std::numeric_limits<double>::infinity();
         if (imagProduct>=s) barResult2 = 0.0;
         fBarrier(N*i+j)=barResult2;
+        barSpline(N*i+j)=barResult;
         
-        double barDerivative=(3.0*(imagProduct*imagProduct/(s*s*s)) -6.0*(imagProduct/(s*s)) + 3.0/s)/origFieldVolumes(i,j);
-        if (imagProduct<=0) barDerivative=std::numeric_limits<double>::infinity();
-        if (imagProduct>=s) barDerivative=0.0;
-        fBarrierDerivative(N*i+j)=barDerivative;
+        double splineDerivativeLocal=3.0*(imagProduct*imagProduct/(s*s*s)) -6.0*(imagProduct/(s*s)) + 3.0/s;
+        if (imagProduct<=0) splineDerivativeLocal=std::numeric_limits<double>::infinity();
+        if (imagProduct>=s) splineDerivativeLocal=0.0;
+        splineDerivative(N*i+j)=splineDerivativeLocal;
         
-        SImagField.row(N*i+j)<<nextVec(1), -nextVec(0), -currVec(1),currVec(0);
+        SImagField.row(N*i+j)<<nextVec(1)/origFieldVolumes(i,j), -nextVec(0)/origFieldVolumes(i,j), -currVec(1)/origFieldVolumes(i,j),currVec(0)/origFieldVolumes(i,j);
+        
       }
     }
     
+    /*cout<<"xAndCurrFieldSmall: "<<xAndCurrFieldSmall<<endl;
+    
+    cout<<"IImagField: "<<IImagField<<endl;
+    cout<<"JImagField: "<<JImagField<<endl;
+    cout<<"SImagField: "<<SImagField<<endl;*/
     SparseMatrix<double> gImagField(N*FN.rows(), currField.size());
     vector<Triplet<double>> gImagTriplets;
-    for (int i=0;i<IImagField.size();i++)
-      gImagTriplets.push_back(Triplet<double>(IImagField(i), JImagField(i), SImagField(s)));
+    //cout<<"IImagField.maxCoeff(): "<<IImagField.maxCoeff()<<endl;
+    //cout<<"JImagField.maxCoeff(): "<<JImagField.maxCoeff()<<endl;
+    for (int i=0;i<IImagField.rows();i++)
+      for (int j=0;j<IImagField.cols();j++)
+        gImagTriplets.push_back(Triplet<double>(IImagField(i,j), JImagField(i,j), SImagField(i,j)));
     
     gImagField.setFromTriplets(gImagTriplets.begin(), gImagTriplets.end());
     
+    //cout<<"fBarrier(11): "<<fBarrier(11)<<endl;
+    //cout<<"fBarrierDerivative(11): "<<fBarrierDerivative(11)<<endl;
     SparseMatrix<double> gFieldReduction = gClose;
-    VectorXd barDerVec=-fBarrierDerivative.array()/(fBarrier.array()*fBarrier.array());
+    VectorXd barDerVec=-splineDerivative.array()/((barSpline.array()*barSpline.array()).array());
+    //cout<<"barDerVec(11): "<<barDerVec(11)<<endl;
+    /*barDerVec(fBarrier==Inf)=Inf;
+    barDerVec(isinf(barDerVec))=0;
+    barDerVec(isnan(barDerVec))=0;*/
     for (int i=0;i<fBarrier.size();i++)
-      if (fBarrierDerivative(i)>std::numeric_limits<double>::infinity()*0.9)
+      if (std::abs(fBarrier(i))<10e-9)
         barDerVec(i)=0.0;
+    else if (fBarrier(i)==std::numeric_limits<double>::infinity())
+      barDerVec(i)=std::numeric_limits<double>::infinity();
     
-    SparseMatrix<double> gBarrierFunc;
-    igl::diag(barDerVec,gBarrierFunc);
+    SparseMatrix<double> gBarrierFunc(barDerVec.size(), barDerVec.size());
+    vector<Triplet<double>> gBarrierFuncTris;
+    for (int i=0;i<barDerVec.size();i++)
+      gBarrierFuncTris.push_back(Triplet<double>(i,i,barDerVec(i)));
+    gBarrierFunc.setFromTriplets(gBarrierFuncTris.begin(), gBarrierFuncTris.end());
     
     SparseMatrix<double> gBarrier = gBarrierFunc*gImagField*gFieldReduction;
     
@@ -240,22 +192,33 @@ public:
     JMats.push_back(gBarrier*wBarrier);
     SparseMatrix<double> J;
     SaddlePoint::sparse_block(blockIndices, JMats,J);
+    //J=gBarrier;
+    //cout<<"gBarrier: "<<gBarrier<<endl;
+    /*cout<<"gIntegration.rows(): "<<gIntegration.rows()<<endl;
+    cout<<"gClose.rows(): "<<gClose.rows()<<endl;
+    cout<<"gConst.rows(): "<<gConst.rows()<<endl;
+    cout<<"gBarrier.rows(): "<<gBarrier.rows()<<endl;*/
     
     JRows.conservativeResize(J.nonZeros());
     JCols.conservativeResize(J.nonZeros());
     JVals.conservativeResize(J.nonZeros());
     int counter=0;
-    for (int k=0; k<G2.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(G2,k); it; ++it){
-        JRows(counter)=it.row();
-        JCols(counter)=it.col();
+    SparseMatrix<double> JT=J.transpose();
+    for (int k=0; k<JT.outerSize(); ++k)
+      for (SparseMatrix<double>::InnerIterator it(JT,k); it; ++it){
+        JRows(counter)=it.col();
+        JCols(counter)=it.row();
         JVals(counter++)=it.value();
       }
+    
+    //cout<<"JRows.maxCoeff(): "<<JRows.maxCoeff()<<endl;
+    //cout<<"JCols.maxCoeff(): "<<JCols.maxCoeff()<<endl;
+    //cout<<"done!" <<endl;
     
     
   }
   bool post_optimization(const Eigen::VectorXd& x){
-    std::cout<<"x:"<<x<<std::endl;
+    //std::cout<<"x:"<<x<<std::endl;
     return true;
   }
   
@@ -270,6 +233,7 @@ public:
     wClose=1;
     s=0.1;
     
+    
     paramLength = (V.colwise().maxCoeff()-V.colwise().minCoeff()).norm()*lengthRatio;
     
     //normalizing field and putting extra in paramLength
@@ -279,11 +243,11 @@ public:
         avgGradNorm+=rawField.block(i,3*j,1,3).norm();
     
     avgGradNorm/=(double)(N*F.rows());
-
+    
     rawField.array()/=avgGradNorm;
     paramLength/=avgGradNorm;
-
-
+    
+    
     
     igl::local_basis(V,F,B1,B2, FN);
     
@@ -317,9 +281,9 @@ public:
         S(counter++)=it.value();
       }
     
-    cout<<"I: "<<I<<endl;
-    cout<<"J: "<<J<<endl;
-    cout<<"S: "<<S<<endl;
+    //cout<<"I: "<<I<<endl;
+    //cout<<"J: "<<J<<endl;
+    // cout<<"S: "<<S<<endl;
     //creating small dense matrix with all non-zero columns
     VectorXi uniqueJVec(uniqueJ.size());
     VectorXi JMask=VectorXi::Constant(C.cols(),-1);
@@ -329,19 +293,19 @@ public:
       JMask(*ji)=counter++;
     }
     
-    cout<<"uniqueJVec: "<<uniqueJVec<<endl;
+    //cout<<"uniqueJVec: "<<uniqueJVec<<endl;
     
     MatrixXd CSmall=MatrixXd::Zero(C.rows(), JMask.maxCoeff()+1);
     for (int i=0;i<I.rows();i++)
       CSmall(I(i),JMask(J(i)))=S(i);
     
-    cout<<"CSmall: "<<CSmall<<endl;
+    //cout<<"CSmall: "<<CSmall<<endl;
     
     
     FullPivLU<MatrixXd> lu_decomp(CSmall);
     MatrixXd USmall=lu_decomp.kernel();
     
-    cout<<"USmall: "<<USmall<<endl;
+    //cout<<"USmall: "<<USmall<<endl;
     
     
     //converting into the big matrix
@@ -373,7 +337,7 @@ public:
     
     UFull=permMat*URaw;
     
-    cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
+    //cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
     
     //computing original volumes and (row,col) of that functional
     
@@ -388,19 +352,19 @@ public:
       rawField2Vec.segment(2*N*i,2*N)=rawField2.row(i).transpose();
     }
     
-    cout<<"rawField2Vec: "<<rawField2Vec<<endl;
+    //cout<<"rawField2Vec: "<<rawField2Vec<<endl;
     
     
     IImagField.resize(N*F.rows(),4);
     JImagField.resize(N*F.rows(),4);
     origFieldVolumes.resize(F.rows(),N);
     for (int i=0;i<F.rows();i++){
-      IImagField.row(i)=VectorXi::Constant(4,i);
       for (int j=0;j<N;j++){
         RowVector2d currVec=rawField2.block(i,2*j,1,2);
         RowVector2d nextVec=rawField2.block(i,2*((j+1)%N),1,2);
+        IImagField.row(i*N+j)=VectorXi::Constant(4,i*N+j);
         JImagField.row(i*N+j)<<2*N*i+2*j, 2*N*i+2*j+1, 2*N*i+2*((j+1)%N), 2*N*i+2*((j+1)%N)+1;
-        origFieldVolumes(i,j)=currVec(0)*nextVec(1)-currVec(1)*nextVec(0);
+        origFieldVolumes(i,j)=currVec.norm()*nextVec.norm();//currVec(0)*nextVec(1)-currVec(1)*nextVec(0);
       }
     }
     
@@ -435,7 +399,7 @@ public:
     
     VectorXd bigRhs(f.size()+fixedValues.size());
     bigRhs<<f,fixedValues;
-    cout<<"bigRhs: "<<bigRhs<<endl;
+    //cout<<"bigRhs: "<<bigRhs<<endl;
     
     SparseLU<SparseMatrix<double>, COLAMDOrdering<int> >   solver;
     solver.analyzePattern(bigMat);
@@ -457,8 +421,8 @@ public:
     
     vector<Triplet<double>> UExtTriplets;
     for (int k=0; k<UFull.outerSize(); ++k)
-        for (SparseMatrix<double>::InnerIterator it(UFull,k); it; ++it)
-          UExtTriplets.push_back(Triplet<double>(it.row(), it.col(), it.value()));
+      for (SparseMatrix<double>::InnerIterator it(UFull,k); it; ++it)
+        UExtTriplets.push_back(Triplet<double>(it.row(), it.col(), it.value()));
     
     for (int k=0; k<rawField2.size(); k++)
       UExtTriplets.push_back(Triplet<double>(UFull.rows()+k,UFull.cols()+k,1.0));
@@ -470,7 +434,8 @@ public:
     VectorXd JVals;
     jacobian(Eigen::VectorXd::Random(UExt.cols()), JVals);
     
-                    
+    xSize = UExt.cols();
+    
   }
 };
 

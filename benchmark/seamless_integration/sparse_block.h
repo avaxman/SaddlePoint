@@ -33,7 +33,7 @@ namespace SaddlePoint
         blockColOffsets(i)=blockColOffsets(i-1)+blockMats[blockIndices(0,i-1)].cols();
     
     int rowSize=blockRowOffsets(blockIndices.rows()-1)+blockMats[blockIndices(blockIndices.rows()-1,0)].rows();
-    int colSize=blockColOffsets(blockIndices.cols()-1)+blockMats[blockIndices(0,blockIndices.rows()-1)].rows();
+    int colSize=blockColOffsets(blockIndices.cols()-1)+blockMats[blockIndices(0,blockIndices.cols()-1)].cols();
     
     result.conservativeResize(rowSize, colSize);
     std::vector<Eigen::Triplet<double>> resultTriplets;
