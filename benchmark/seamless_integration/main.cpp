@@ -3,6 +3,7 @@
 #include <SaddlePoint/check_traits.h>
 #include <SaddlePoint/DiagonalDamping.h>
 #include <SIInitialSolutionTraits.h>
+#include <IterativeRoundingTraits.h>
 #include <iostream>
 #include <Eigen/core>
 #include <igl/serialize.h>
@@ -16,7 +17,11 @@ typedef SaddlePoint::EigenSolverWrapper<Eigen::SimplicialLLT<Eigen::SparseMatrix
 SIInitialSolutionTraits<LinearSolver> slTraits;
 LinearSolver lSolver;
 SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver>> dTraits(0.01);
-SaddlePoint::LMSolver<LinearSolver,SIInitialSolutionTraits<LinearSolver>, SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver> > > lmSolver;
+SaddlePoint::LMSolver<LinearSolver,SIInitialSolutionTraits<LinearSolver>, SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver> > > initialSolutionLMSolver;
+
+IterativeRoundingTraits<LinearSolver> irTraits;
+SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver>> dTraits(0.01);
+SaddlePoint::LMSolver<LinearSolver,SIInitialSolutionTraits<LinearSolver>, SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver> > > initialSolutionLMSolver;
 
 
 int main(int argc, char *argv[])
@@ -47,12 +52,19 @@ int main(int argc, char *argv[])
   igl::deserialize(slTraits.x2CornerMat,"x2CornerMat",filename);
   igl::deserialize(slTraits.integerIndices,"integerIndices",filename);
   
+  //initial solution
   slTraits.init();
-  Eigen::VectorXd JVals;
+  //Eigen::VectorXd JVals;
   //slTraits.jacobian(slTraits.initXandFieldSmall, JVals);
-  lmSolver.init(&lSolver, &slTraits, &dTraits, 1000);
+  initialSolutionLMSolver.init(&lSolver, &slTraits, &dTraits, 1000);
   SaddlePoint::check_traits(slTraits, slTraits.initXandFieldSmall);
-  lmSolver.solve(true);
+  initialSolutionLMSolver.solve(true);
+  
+  //Iterative rounding
+  irTraits.init(slTraits);
+  initialSolutionLMSolver.init(&lSolver, &slTraits, &dTraits, 1000);
+  SaddlePoint::check_traits(irTraits, irTraits.x0Small);
+  initialSolutionLMSolver.solve(true);
   
   return 0;
 }

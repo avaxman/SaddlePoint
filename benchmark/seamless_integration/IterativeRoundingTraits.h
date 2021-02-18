@@ -1,12 +1,12 @@
 //
-//  SIInitialSolutionTraits.h
+//  IterativeRoundingTraits.h
 //  seamless_integration_bin
 //
-//  Created by Amir Vaxman on 06/02/2021.
+//  Created by Amir Vaxman on 17/02/2021.
 //
 
-#ifndef SIInitialSolutionTraits_h
-#define SIInitialSolutionTraits_h
+#ifndef ITERATIVE_ROUNDING_TRAITS_H
+#define ITERATIVE_ROUNDING_TRAITS_H
 
 #include <igl/local_basis.h>
 #include <igl/unique.h>
@@ -14,11 +14,12 @@
 #include <igl/speye.h>
 #include <igl/slice.h>
 #include <igl/diag.h>
+#include <SIInitialSolutionTraits.h>
 #include "sparse_block.h"
 
 
 template <class LinearSolver>
-class SIInitialSolutionTraits{
+class IterativeRoundingTraits{
 public:
   
   
@@ -29,15 +30,44 @@ public:
   Eigen::SparseMatrix<double> A,C,G,G2, UFull, x2CornerMat, UExt;
   Eigen::MatrixXd rawField, rawField2, FN, V,B1,B2, origFieldVolumes,SImagField;
   Eigen::MatrixXi F;
-  Eigen::VectorXd b,xPoisson, fixedValues, x0, initXandFieldSmall,rawField2Vec,rawFieldVec;
+  Eigen::VectorXd b,xPoisson, fixedValues, x0, x0Small, xCurrSmall, xPrevSmall,rawField2Vec,rawFieldVec, xCurr;
   Eigen::VectorXi fixedIndices, integerIndices, singularIndices;
   Eigen::MatrixXi IImagField, JImagField;
   int N,n;
-  double lengthRatio, paramLength;
-  double wIntegration,wConst, wBarrier, wClose, s;
+  double lengthRatio, paramLength, fraction;
+  double wIntegration,wConst, wBarrier, wClose, s, wPoisson;
+  std::list<int> leftIndices;
   
   void initial_solution(Eigen::VectorXd& _x0){
-    _x0 = initXandFieldSmall;
+    _x0 = x0Small;
+  }
+  
+  bool pre_optimization(const Eigen::VectorXd& prevx){
+    using namespace Eigen;
+    using namespace std;
+    xPrevSmall=xCurrSmall;
+    xCurr=UFull*xCurrSmall;
+    
+    VectorXd roundDiffs(leftIndices.size());
+    int minRoundDiff=3276700.0;
+    int minRoundIndex=-1;
+    for (int i=0;i<leftIndices.size();i++){
+      roundDiffs(i) = std::abs(fraction*xCurr(leftIndices[i])-std::round(fraction*xCurr(leftIndices[i])));
+      if (roundDiffs(i)<minRoundDiff){
+        minRoundIndex=i;
+        minRoundDiff=roundDiffs(i);
+      }
+    }
+    
+    double origValue = xCurr(leftIndices(minRoundIndex));
+    double roundValue = std::round(fraction*xXurr(leftIndices(minRoundIndex)))/fraction;
+    fixedIndices.conservativeResize(fixedIndices.size()+1);
+    fixedIndices(fixedIndices.size()-1)=leftIndices[minRoundIndex];  //is this under-performing?
+    fixedValues.conservativeResize(fixedValues.size()-1);
+    fixedValues(fixedValues.size()-1)=roundValue;
+   
+    leftIndices.remove(leftIndices[minRoundIndex]);
+    return (minRoundDiff>10e-7); //only proceeding if there is a need to round
   }
   void pre_iteration(const Eigen::VectorXd& prevx){}
   bool post_iteration(const Eigen::VectorXd& x){return false;}
@@ -219,227 +249,79 @@ public:
   }
   bool post_optimization(const Eigen::VectorXd& x){
     //std::cout<<"x:"<<x<<std::endl;
-  
     return true;
   }
   
   
-  void init(){
+  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initSolutionSmall){
     using namespace std;
     using namespace Eigen;
     
-    wIntegration=10e3;
-    wConst=10e3;
-    wBarrier=0.0001;
-    wClose=1;
-    s=0.1;
+    
+    A=sist.A; C=sist.C; G=sist.G; G2=sist.G2; UFull=sist.UFull; x2CornerMat=sist.x2CornerMat; UExt=sist.UExt;
+    rawField=sist.rawField; rawField2=sist.rawField2; FN=sist.FN, V=sist.V; B1=sist.B1; B2=sist.B2; origFieldVolumes=sist.origFieldVolumes; SImagField=sist.SImagField;
+    F=sist.F;
+    b=sist.b; xPoisson=sist.xPoisson; fixedValues=sist.fixedValues; x0=sist.x0; x0Small=sist.x0Small, xCurrSmall=sist.xCurrSmall, xPrevSmall=sist.xPrevSmall,rawField2Vec=sist.rawField2Vec,rawFieldVec=sist.rawFieldVec;
+    fixedIndices=sist.fixedIndices, integerIndices=sist.integerIndices, singularIndices=sist.singularIndices;
+    IImagField=sist.IImagField, JImagField=sist.JImagField;
+    N=sist.N,n=sist.n;
+    lengthRatio=sist.lengthRatio, paramLength=sist.paramLength;
+    wIntegration=sist.wIntegration,wConst=sist.wConst, wBarrier=sist.wBarrier, wClose=sist.wClose, s=sist.s;
+    
+    wPoisson=1;
+    wClose = 0.01;
+    wConst=10e5;
+    
+    //Updating initial quantities
     
     
-    paramLength = (V.colwise().maxCoeff()-V.colwise().minCoeff()).norm()*lengthRatio;
+    VectorXd currXandField=UExt*initSolutionSmall;
+
+    x0=currXandField.head(sist.sizeX);
+    x0Small=initSolutionSmall.head(UFull.cols());
+    rawField2Vec=currXandField.tail(N*FN.rows());
     
-    //normalizing field and putting extra in paramLength
-    double avgGradNorm=0;
-    for (int i=0;i<F.rows();i++)
+    rawField2.conservativeResize(FN.rows(),2*N);
+    double avgGradNorm=0.0;
+    for (int i=0;i<FN.rows();i++)
+      rawField2.row(i)=rawField2Vec.segment(2*N*i,2*N);
+    
+    for (int i=0;i<FN.rows();i++)
       for (int j=0;j<N;j++)
-        avgGradNorm+=rawField.block(i,3*j,1,3).norm();
+        avgGradNorm+=rawField2.block(i,2*N*j,1,2).norm();
     
-    avgGradNorm/=(double)(N*F.rows());
+    avgGradNorm/=(double)(N*FN.rows());
+    cout<<"avgGradNorm: "<<avgGradNorm<<endl;
     
     rawField.array()/=avgGradNorm;
-    paramLength/=avgGradNorm;
+    rawField2.array()/=avgGradNorm;
+    x0.array()/=avgGradNorm;
     
-    
-    
-    igl::local_basis(V,F,B1,B2, FN);
-    
-    //creating G2
-    vector<Triplet<double>> reducMatTris;
-    SparseMatrix<double> reducMat;
-    for (int i=0;i<F.rows();i++){
-      for (int j=0;j<3;j++){
-        for (int k=0;k<N;k++){
-          reducMatTris.push_back(Triplet<double>(2*N*i+2*k,3*N*i+3*k+j,B1(i,j)));
-          reducMatTris.push_back(Triplet<double>(2*N*i+2*k+1,3*N*i+3*k+j,B2(i,j)));
-        }
-      }
-    }
-    
-    reducMat.resize(2*N*F.rows(), 3*N*F.rows());
-    reducMat.setFromTriplets(reducMatTris.begin(), reducMatTris.end());
-    G2=reducMat*G;
-    
-    //Reducing constraint matrix
-    VectorXi I(C.nonZeros()),J(C.nonZeros());
-    VectorXd S(C.nonZeros());
-    set<int> uniqueJ;
-    int counter=0;
-    for (int k=0; k<C.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(C,k); it; ++it)
-      {
-        I(counter)=it.row();
-        J(counter)=it.col();
-        uniqueJ.insert(it.col());
-        S(counter++)=it.value();
-      }
-    
-    //cout<<"I: "<<I<<endl;
-    //cout<<"J: "<<J<<endl;
-    // cout<<"S: "<<S<<endl;
-    //creating small dense matrix with all non-zero columns
-    VectorXi uniqueJVec(uniqueJ.size());
-    VectorXi JMask=VectorXi::Constant(C.cols(),-1);
-    counter=0;
-    for (set<int>::iterator ji=uniqueJ.begin();ji!=uniqueJ.end();ji++){
-      uniqueJVec(counter)=*ji;
-      JMask(*ji)=counter++;
-    }
-    
-    //cout<<"uniqueJVec: "<<uniqueJVec<<endl;
-    
-    MatrixXd CSmall=MatrixXd::Zero(C.rows(), JMask.maxCoeff()+1);
-    for (int i=0;i<I.rows();i++)
-      CSmall(I(i),JMask(J(i)))=S(i);
-    
-    //cout<<"CSmall: "<<CSmall<<endl;
-    
-    
-    FullPivLU<MatrixXd> lu_decomp(CSmall);
-    MatrixXd USmall=lu_decomp.kernel();
-    
-    //cout<<"USmall: "<<USmall<<endl;
-    
-    
-    //converting into the big matrix
-    VectorXi nonPartIndices, stub;
-    VectorXi allIndices(C.cols());
-    for (int i=0;i<allIndices.size();i++) allIndices(i)=i;
-    igl::setdiff(allIndices, uniqueJVec, nonPartIndices, stub);
-    
-    SparseMatrix<double> URaw(nonPartIndices.size()+USmall.rows(),nonPartIndices.size()+USmall.cols());
-    vector<Triplet<double>> URawTriplets;
-    for (int i=0;i<nonPartIndices.size();i++)
-      URawTriplets.push_back(Triplet<double>(i,i,1.0));
-    
-    for (int i=0;i<USmall.rows();i++)
-      for (int j=0;j<USmall.cols();j++)
-        URawTriplets.push_back(Triplet<double>(nonPartIndices.size()+i,nonPartIndices.size()+j,USmall(i,j)));
-    
-    URaw.setFromTriplets(URawTriplets.begin(), URawTriplets.end());
-    
-    SparseMatrix<double> permMat(URaw.rows(),URaw.rows());
-    vector<Triplet<double>> permMatTriplets;
-    for (int i=0;i<nonPartIndices.size();i++)
-      permMatTriplets.push_back(Triplet<double>(nonPartIndices(i),i,1.0));
-    
-    for (int i=0;i<uniqueJVec.size();i++)
-      permMatTriplets.push_back(Triplet<double>(uniqueJVec(i),nonPartIndices.size()+i,1.0));
-    
-    permMat.setFromTriplets(permMatTriplets.begin(), permMatTriplets.end());
-    
-    UFull=permMat*URaw;
-    
-    //cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
-    
-    //computing original volumes and (row,col) of that functional
-    
-    rawField2.resize(F.rows(),2*N);
-    for (int i=0;i<N;i++)
-      rawField2.middleCols(2*i,2)<<rawField.middleCols(3*i,3).cwiseProduct(B1).rowwise().sum(),rawField.middleCols(3*i,3).cwiseProduct(B2).rowwise().sum();
-    
-    rawFieldVec.resize(3*N*F.rows());
-    rawField2Vec.resize(2*N*F.rows());
-    for (int i=0;i<rawField.rows();i++){
-      rawFieldVec.segment(3*N*i,3*N)=rawField.row(i).transpose();
-      rawField2Vec.segment(2*N*i,2*N)=rawField2.row(i).transpose();
-    }
-    
-    //cout<<"rawField2Vec: "<<rawField2Vec<<endl;
-    
-    
-    IImagField.resize(N*F.rows(),4);
-    JImagField.resize(N*F.rows(),4);
-    origFieldVolumes.resize(F.rows(),N);
-    for (int i=0;i<F.rows();i++){
+    origFieldVolumes.resize(FN.rows(),N);
+    for (int i=0;i<FN.rows();i++){
       for (int j=0;j<N;j++){
         RowVector2d currVec=rawField2.block(i,2*j,1,2);
         RowVector2d nextVec=rawField2.block(i,2*((j+1)%N),1,2);
-        IImagField.row(i*N+j)=VectorXi::Constant(4,i*N+j);
-        JImagField.row(i*N+j)<<2*N*i+2*j, 2*N*i+2*j+1, 2*N*i+2*((j+1)%N), 2*N*i+2*((j+1)%N)+1;
+        
         origFieldVolumes(i,j)=currVec.norm()*nextVec.norm();//currVec(0)*nextVec(1)-currVec(1)*nextVec(0);
       }
     }
     
+    
     cout<<"min origFieldVolumes: "<<origFieldVolumes.colwise().minCoeff()<<endl;
-    cout<<"origFieldVolumes.row(0): "<<origFieldVolumes.row(0)<<endl;
+
+    fixedIndices=VectorXi::Zero(0);
+    fixedValues=VectorXd::Zero(0.0);
     
-    //Generating naive poisson solution
-    SparseMatrix<double> Mx;
-    igl::speye(3*N*F.rows(),Mx);   //TODO: change to correct masses
-    SparseMatrix<double> L = G.transpose()*Mx*G;
-    SparseMatrix<double> E = UFull.transpose()*G.transpose()*Mx*G*UFull;
-    VectorXd f = UFull.transpose()*G.transpose()*Mx*(rawFieldVec/paramLength);
-    SparseMatrix<double> constMat(fixedIndices.size(),UFull.cols());
-    
-    igl::slice(UFull, fixedIndices, 1,constMat);
-    
-    vector<Triplet<double>> bigMatTriplets;
-    
-    for (int k=0; k<E.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(E,k); it; ++it)
-        bigMatTriplets.push_back(Triplet<double>(it.row(),it.col(), it.value()));
-    
-    for (int k=0; k<constMat.outerSize(); ++k){
-      for (SparseMatrix<double>::InnerIterator it(constMat,k); it; ++it){
-        bigMatTriplets.push_back(Triplet<double>(it.row()+E.rows(),it.col(), it.value()));
-        bigMatTriplets.push_back(Triplet<double>(it.col(), it.row()+E.rows(), it.value()));
-      }
-    }
-    
-    SparseMatrix<double> bigMat(E.rows()+constMat.rows(),E.rows()+constMat.rows());
-    bigMat.setFromTriplets(bigMatTriplets.begin(), bigMatTriplets.end());
-    
-    VectorXd bigRhs(f.size()+fixedValues.size());
-    bigRhs<<f,fixedValues;
-    //cout<<"bigRhs: "<<bigRhs<<endl;
-    
-    SparseLU<SparseMatrix<double>, COLAMDOrdering<int> >   solver;
-    solver.analyzePattern(bigMat);
-    solver.factorize(bigMat);
-    if (solver.info()!=Eigen::Success){
-      cout<<"Factorization of bigMat failed!!"<<endl;
-      return;
-    }
-    VectorXd initXSmallFull = solver.solve(bigRhs);
-    VectorXd initXSmall=initXSmallFull.head(UFull.cols());
-    
-    double initialIntegrationError = (rawField2Vec - paramLength*G2*UFull*initXSmall).template lpNorm<Infinity>();
-    std::cout<<"initialIntegrationError: "<<initialIntegrationError<<std::endl;
-    
-    x0=UFull*initXSmall;
-    
-    initXandFieldSmall.resize(initXSmall.size()+rawField2.size());
-    initXandFieldSmall<<initXSmall,rawField2Vec;
-    
-    vector<Triplet<double>> UExtTriplets;
-    for (int k=0; k<UFull.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(UFull,k); it; ++it)
-        UExtTriplets.push_back(Triplet<double>(it.row(), it.col(), it.value()));
-    
-    for (int k=0; k<rawField2.size(); k++)
-      UExtTriplets.push_back(Triplet<double>(UFull.rows()+k,UFull.cols()+k,1.0));
-    
-    UExt.resize(UFull.rows()+rawField2Vec.size(), UFull.cols()+rawField2Vec.size());
-    UExt.setFromTriplets(UExtTriplets.begin(), UExtTriplets.end());
-    
-    //restarting rows cols and vals
-    VectorXd JVals;
-    jacobian(Eigen::VectorXd::Random(UExt.cols()), JVals);
-    
-    xSize = UExt.cols();
-    
+    for (int i=0;i<singularIndices.size();i++)
+      leftIndices.push_back(singularIndices.size());
+      
+    xCurrSmall=x0Small;
+    xPrevSmall=xCurrSmall;
+    fraction=1;
   }
 };
 
 
 
-#endif /* SIInitialSolutionTraits_h */
+#endif /* Iterative ROunding Traits */
