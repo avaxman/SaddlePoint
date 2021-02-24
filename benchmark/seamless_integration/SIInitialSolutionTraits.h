@@ -36,6 +36,7 @@ public:
   double lengthRatio, paramLength;
   double wIntegration,wConst, wBarrier, wClose, s;
   
+  bool pre_optimization(Eigen::VectorXd& prev){return true;}
   void initial_solution(Eigen::VectorXd& _x0){
     _x0 = initXandFieldSmall;
   }

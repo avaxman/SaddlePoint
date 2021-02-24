@@ -15,13 +15,13 @@ typedef SaddlePoint::EigenSolverWrapper<Eigen::SimplicialLLT<Eigen::SparseMatrix
 
 
 SIInitialSolutionTraits<LinearSolver> slTraits;
-LinearSolver lSolver;
-SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver>> dTraits(0.01);
+LinearSolver lSolver1,lSolver2;
+SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver>> dISTraits(0.01);
 SaddlePoint::LMSolver<LinearSolver,SIInitialSolutionTraits<LinearSolver>, SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver> > > initialSolutionLMSolver;
 
 IterativeRoundingTraits<LinearSolver> irTraits;
-SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver>> dTraits(0.01);
-SaddlePoint::LMSolver<LinearSolver,SIInitialSolutionTraits<LinearSolver>, SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver> > > initialSolutionLMSolver;
+SaddlePoint::DiagonalDamping<IterativeRoundingTraits<LinearSolver>> dIRTraits(0.01);
+SaddlePoint::LMSolver<LinearSolver,IterativeRoundingTraits<LinearSolver>, SaddlePoint::DiagonalDamping<IterativeRoundingTraits<LinearSolver> > > iterativeRoundingLMSolver;
 
 
 int main(int argc, char *argv[])
@@ -56,15 +56,16 @@ int main(int argc, char *argv[])
   slTraits.init();
   //Eigen::VectorXd JVals;
   //slTraits.jacobian(slTraits.initXandFieldSmall, JVals);
-  initialSolutionLMSolver.init(&lSolver, &slTraits, &dTraits, 1000);
-  SaddlePoint::check_traits(slTraits, slTraits.initXandFieldSmall);
+  initialSolutionLMSolver.init(&lSolver1, &slTraits, &dISTraits, 1000);
+  //SaddlePoint::check_traits(slTraits, slTraits.initXandFieldSmall);
   initialSolutionLMSolver.solve(true);
+  cout<<"(x-x0).lpNorm<Infinity>(): "<<(initialSolutionLMSolver.x-initialSolutionLMSolver.x0).lpNorm<Infinity>()<<endl;
   
   //Iterative rounding
-  irTraits.init(slTraits);
-  initialSolutionLMSolver.init(&lSolver, &slTraits, &dTraits, 1000);
-  SaddlePoint::check_traits(irTraits, irTraits.x0Small);
-  initialSolutionLMSolver.solve(true);
+  irTraits.init(slTraits, initialSolutionLMSolver.x);
+  iterativeRoundingLMSolver.init(&lSolver2, &irTraits, &dIRTraits, 1000);
+  //SaddlePoint::check_traits(irTraits, irTraits.x0Small);
+  iterativeRoundingLMSolver.solve(true);
   
   return 0;
 }

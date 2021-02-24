@@ -35,8 +35,10 @@ public:
   Eigen::MatrixXi IImagField, JImagField;
   int N,n;
   double lengthRatio, paramLength, fraction;
-  double wIntegration,wConst, wBarrier, wClose, s, wPoisson;
-  std::list<int> leftIndices;
+  double wConst, wBarrier, wClose, s, wPoisson;
+  Eigen::VectorXi leftIndices;
+  
+  bool success;
   
   void initial_solution(Eigen::VectorXd& _x0){
     _x0 = x0Small;
@@ -45,48 +47,71 @@ public:
   bool pre_optimization(const Eigen::VectorXd& prevx){
     using namespace Eigen;
     using namespace std;
-    xPrevSmall=xCurrSmall;
+    xPrevSmall=prevx;
     xCurr=UFull*xCurrSmall;
     
     VectorXd roundDiffs(leftIndices.size());
-    int minRoundDiff=3276700.0;
+    double minRoundDiff=3276700.0;
     int minRoundIndex=-1;
     for (int i=0;i<leftIndices.size();i++){
-      roundDiffs(i) = std::abs(fraction*xCurr(leftIndices[i])-std::round(fraction*xCurr(leftIndices[i])));
+      cout<<"fraction*xCurr(leftIndices(i)): "<<fraction*xCurr(leftIndices(i))<<endl;
+      cout<<"std::round(fraction*xCurr(leftIndices(i))): "<<std::round(fraction*xCurr(leftIndices(i)))<<endl;
+      roundDiffs(i) = std::fabs(fraction*xCurr(leftIndices(i))-std::round(fraction*xCurr(leftIndices(i))));
       if (roundDiffs(i)<minRoundDiff){
         minRoundIndex=i;
         minRoundDiff=roundDiffs(i);
+        cout<<"minRoundDiff: "<<minRoundDiff<<endl;
       }
     }
     
     double origValue = xCurr(leftIndices(minRoundIndex));
-    double roundValue = std::round(fraction*xXurr(leftIndices(minRoundIndex)))/fraction;
+    double roundValue = std::round(fraction*xCurr(leftIndices(minRoundIndex)))/fraction;
+    cout<<"origValue,roundValue: "<<origValue<<","<<roundValue<<endl;
     fixedIndices.conservativeResize(fixedIndices.size()+1);
     fixedIndices(fixedIndices.size()-1)=leftIndices[minRoundIndex];  //is this under-performing?
-    fixedValues.conservativeResize(fixedValues.size()-1);
+    fixedValues.conservativeResize(fixedValues.size()+1);
     fixedValues(fixedValues.size()-1)=roundValue;
    
-    leftIndices.remove(leftIndices[minRoundIndex]);
+    VectorXi newLeftIndices(leftIndices.size()-1);
+    newLeftIndices.head(minRoundIndex)=leftIndices.head(minRoundIndex);
+    newLeftIndices.tail(newLeftIndices.size()-minRoundIndex)=leftIndices.tail(newLeftIndices.size()-minRoundIndex);
+    leftIndices=newLeftIndices;
     return (minRoundDiff>10e-7); //only proceeding if there is a need to round
   }
   void pre_iteration(const Eigen::VectorXd& prevx){}
   bool post_iteration(const Eigen::VectorXd& x){return false;}
   
-  void objective(const Eigen::VectorXd& xAndCurrFieldSmall,  Eigen::VectorXd& EVec){
+  void objective(const Eigen::VectorXd& xCurrSmall,  Eigen::VectorXd& EVec){
     using namespace std;
     using namespace Eigen;
     
-    VectorXd xAndCurrField = UExt*xAndCurrFieldSmall;
-    VectorXd xcurr=xAndCurrField.head(x0.size());
-    VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
+    /*xcurr = U*xcurrSmall;
+    fObj = G2*U*xcurrSmall*paramLength - rawField2;
+    gObj = G2*U*paramLength;
+    %fObj = A*xcurr-b;
+    %gObj = A*U;
+    fClose = (xcurrSmall-xprevSmall);
+    gClose=speye(length(xcurrSmall));
+    %fLinConst=C*xcurr;
+
+    fConst = (xcurr(fixedIndices)-fixedValues);
+
+    nf = length(FN);
+    currField = G2*xcurr*paramLength;
+    fBarrier = zeros(N*nf,1);
+    splineDerivative= zeros(N*nf,1);
+    barSpline=zeros(N*nf,1);*/
     
-    VectorXd fIntegration = (currField - paramLength*G2*xcurr);
-    VectorXd fClose = currField-rawField2Vec;
-    
+    VectorXd xCurr = UFull*xCurrSmall;
+    VectorXd fObj = G2*UFull*xCurrSmall*paramLength - rawField2Vec;
+    VectorXd fClose = (xCurrSmall-xPrevSmall);
+       
     VectorXd fConst(fixedIndices.size());
     for (int i=0;i<fixedIndices.size();i++)
-      fConst(i) = xcurr(fixedIndices(i))-fixedValues(i);
+      fConst(i) = xCurr(fixedIndices(i))-fixedValues(i);
     
+    
+    VectorXd currField = G2*xCurr*paramLength;
     VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
     
     for (int i=0;i<FN.rows();i++){
@@ -102,8 +127,8 @@ public:
       }
     }
     
-    EVec.conservativeResize(fIntegration.size()+fClose.size()+fConst.size()+fBarrier.size());
-    EVec<<fIntegration*wIntegration,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
+    EVec.conservativeResize(fObj.size()+fClose.size()+fConst.size()+fBarrier.size());
+    EVec<<fObj*wPoisson,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
     //EVec.conservativeResize(fBarrier.size());
     //EVec<<fBarrier;
   }
@@ -113,41 +138,25 @@ public:
     using namespace Eigen;
     using namespace std;
     
-    VectorXd xAndCurrField = UExt*xAndCurrFieldSmall;
-    VectorXd xcurr=xAndCurrField.head(x0.size());
-    VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
+    VectorXd xCurr = UFull*xCurrSmall;
+    VectorXd currField = G2*xCurr*paramLength;
+       
+    //Poisson error
+    SparseMatrix<double> gObj = G2*UFull*paramLength;
     
-    //integration
-    SparseMatrix<double> gIntegration;
-    vector<Triplet<double>> gIntegrationTriplets;
-    for (int k=0; k<G2.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(G2,k); it; ++it)
-        gIntegrationTriplets.push_back(Triplet<double>(it.row(), it.col(), -paramLength*it.value()));
-    
-    for (int i=0;i<currField.size();i++)
-      gIntegrationTriplets.push_back(Triplet<double>(i,G2.cols()+i,1.0));
-    
-    gIntegration.resize(G2.rows(), G2.cols()+currField.size());
-    gIntegration.setFromTriplets(gIntegrationTriplets.begin(), gIntegrationTriplets.end());
-    gIntegration=gIntegration*UExt;
-    
-    //closeness
-    SparseMatrix<double> gClose(currField.size(), xAndCurrField.size());
-    vector<Triplet<double>> gCloseTriplets;
-    for (int i=0;i<currField.size();i++)
-      gCloseTriplets.push_back(Triplet<double>(i,x0.size()+i,1.0));
-    
-    gClose.setFromTriplets(gCloseTriplets.begin(), gCloseTriplets.end());
-    gClose=gClose*UExt;
+    //Closeness
+    SparseMatrix<double> gClose;
+    igl::speye(xCurrSmall.size(), gClose);
+  
     
     //fixedIndices constness
-    SparseMatrix<double> gConst(fixedIndices.size(), xAndCurrField.size());
+    SparseMatrix<double> gConst(fixedIndices.size(), xCurr.size());
     vector<Triplet<double>> gConstTriplets;
     for (int i=0;i<fixedIndices.size();i++)
       gConstTriplets.push_back(Triplet<double>(i,fixedIndices(i),1.0));
     
     gConst.setFromTriplets(gConstTriplets.begin(), gConstTriplets.end());
-    gConst=gConst*UExt;
+    gConst=gConst*UFull;
     
     //barrier
     VectorXd splineDerivative= VectorXd::Zero(N*FN.rows(),1);
@@ -211,12 +220,12 @@ public:
       gBarrierFuncTris.push_back(Triplet<double>(i,i,barDerVec(i)));
     gBarrierFunc.setFromTriplets(gBarrierFuncTris.begin(), gBarrierFuncTris.end());
     
-    SparseMatrix<double> gBarrier = gBarrierFunc*gImagField*gFieldReduction;
-    
+    SparseMatrix<double> gBarrier = gBarrierFunc*gImagField*G2*UFull*paramLength;
+  
     MatrixXi blockIndices(4,1);
     blockIndices<<0,1,2,3;
     vector<SparseMatrix<double>> JMats;
-    JMats.push_back(gIntegration*wIntegration);
+    JMats.push_back(gObj*wPoisson);
     JMats.push_back(gClose*wClose);
     JMats.push_back(gConst*wConst);
     JMats.push_back(gBarrier*wBarrier);
@@ -249,11 +258,29 @@ public:
   }
   bool post_optimization(const Eigen::VectorXd& x){
     //std::cout<<"x:"<<x<<std::endl;
-    return true;
+    
+    xCurr = UFull*x;
+    Eigen::VectorXd roundDiffs(fixedIndices.size());
+    int minRoundDiff=3276700.0;
+    int minRoundIndex=-1;
+    for (int i=0;i<fixedIndices.size();i++){
+      roundDiffs(i) = std::abs(fraction*xCurr(fixedIndices[i])-std::round(fraction*xCurr(fixedIndices[i])));
+      if (roundDiffs(i)<minRoundDiff){
+        minRoundIndex=i;
+        minRoundDiff=roundDiffs(i);
+      }
+    }
+    
+    if (roundDiffs.maxCoeff()>10e-7){
+      success=false;
+      return true;  //terminate
+    } else {
+      return (leftIndices.size()==0);
+    }
   }
   
   
-  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initSolutionSmall){
+  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initCurrXandFieldSmall){
     using namespace std;
     using namespace Eigen;
     
@@ -261,12 +288,12 @@ public:
     A=sist.A; C=sist.C; G=sist.G; G2=sist.G2; UFull=sist.UFull; x2CornerMat=sist.x2CornerMat; UExt=sist.UExt;
     rawField=sist.rawField; rawField2=sist.rawField2; FN=sist.FN, V=sist.V; B1=sist.B1; B2=sist.B2; origFieldVolumes=sist.origFieldVolumes; SImagField=sist.SImagField;
     F=sist.F;
-    b=sist.b; xPoisson=sist.xPoisson; fixedValues=sist.fixedValues; x0=sist.x0; x0Small=sist.x0Small, xCurrSmall=sist.xCurrSmall, xPrevSmall=sist.xPrevSmall,rawField2Vec=sist.rawField2Vec,rawFieldVec=sist.rawFieldVec;
-    fixedIndices=sist.fixedIndices, integerIndices=sist.integerIndices, singularIndices=sist.singularIndices;
-    IImagField=sist.IImagField, JImagField=sist.JImagField;
+    b=sist.b; xPoisson=sist.xPoisson; fixedValues=sist.fixedValues;  rawField2Vec=sist.rawField2Vec; rawFieldVec=sist.rawFieldVec;
+    fixedIndices=sist.fixedIndices; integerIndices=sist.integerIndices; singularIndices=sist.singularIndices;
+    IImagField=sist.IImagField; JImagField=sist.JImagField;
     N=sist.N,n=sist.n;
-    lengthRatio=sist.lengthRatio, paramLength=sist.paramLength;
-    wIntegration=sist.wIntegration,wConst=sist.wConst, wBarrier=sist.wBarrier, wClose=sist.wClose, s=sist.s;
+    lengthRatio=sist.lengthRatio; paramLength=sist.paramLength;
+    wConst=sist.wConst, wBarrier=sist.wBarrier, wClose=sist.wClose, s=sist.s;
     
     wPoisson=1;
     wClose = 0.01;
@@ -275,11 +302,12 @@ public:
     //Updating initial quantities
     
     
-    VectorXd currXandField=UExt*initSolutionSmall;
+    VectorXd currXandField=UExt*initCurrXandFieldSmall;
 
-    x0=currXandField.head(sist.sizeX);
-    x0Small=initSolutionSmall.head(UFull.cols());
-    rawField2Vec=currXandField.tail(N*FN.rows());
+    xSize=UFull.cols();
+    x0=currXandField.head(UFull.rows());
+    x0Small=initCurrXandFieldSmall.head(UFull.cols());
+    rawField2Vec=currXandField.tail(2*N*FN.rows());
     
     rawField2.conservativeResize(FN.rows(),2*N);
     double avgGradNorm=0.0;
@@ -288,7 +316,7 @@ public:
     
     for (int i=0;i<FN.rows();i++)
       for (int j=0;j<N;j++)
-        avgGradNorm+=rawField2.block(i,2*N*j,1,2).norm();
+        avgGradNorm+=rawField2.block(i,2*j,1,2).norm();
     
     avgGradNorm/=(double)(N*FN.rows());
     cout<<"avgGradNorm: "<<avgGradNorm<<endl;
@@ -313,12 +341,16 @@ public:
     fixedIndices=VectorXi::Zero(0);
     fixedValues=VectorXd::Zero(0.0);
     
-    for (int i=0;i<singularIndices.size();i++)
-      leftIndices.push_back(singularIndices.size());
+    leftIndices=singularIndices;
+    /*for (int i=0;i<singularIndices.size();i++)
+      leftIndices.push_back(singularIndices.size());*/
       
     xCurrSmall=x0Small;
     xPrevSmall=xCurrSmall;
     fraction=1;
+    
+    VectorXd JVals;
+    jacobian(Eigen::VectorXd::Random(UFull.cols()), JVals);
   }
 };
 

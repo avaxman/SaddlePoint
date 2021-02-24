@@ -291,6 +291,7 @@ namespace SaddlePoint
       //estimating initial miu
       VectorXd modifyVector;
       VectorXd JVals, EVec;
+      
       ST->objective(prevx, EVec);
       ST->jacobian(prevx, JVals);
       set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
@@ -304,6 +305,8 @@ namespace SaddlePoint
       do{
         currIter=0;
         stop=false;
+        if (!ST->pre_optimization(prevx))
+          continue;
         do{
           ST->pre_iteration(prevx);
         
