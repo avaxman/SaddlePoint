@@ -40,6 +40,7 @@ int main(int argc, char *argv[])
   igl::deserialize(slTraits.singularIndices,"singularIndices",filename);
   igl::deserialize(slTraits.b,"b",filename);
   igl::deserialize(slTraits.C,"C",filename);
+  igl::deserialize(slTraits.UFull,"UFull",filename);
   igl::deserialize(slTraits.G,"G",filename);
   igl::deserialize(slTraits.FN,"FN",filename);
   igl::deserialize(slTraits.N,"N",filename);
@@ -61,11 +62,35 @@ int main(int argc, char *argv[])
   initialSolutionLMSolver.solve(true);
   cout<<"(x-x0).lpNorm<Infinity>(): "<<(initialSolutionLMSolver.x-initialSolutionLMSolver.x0).lpNorm<Infinity>()<<endl;
   
+  cout<<"initialSolutionLMSolver.x.head(10): "<<initialSolutionLMSolver.x.head(10)<<endl;
+  
   //Iterative rounding
   irTraits.init(slTraits, initialSolutionLMSolver.x);
-  iterativeRoundingLMSolver.init(&lSolver2, &irTraits, &dIRTraits, 1000);
-  //SaddlePoint::check_traits(irTraits, irTraits.x0Small);
-  iterativeRoundingLMSolver.solve(true);
   
+  return 0;
+  bool success=true;
+  for (int i=0;i<irTraits.singularIndices.size();i++){
+    cout<<"i: "<<i<<endl;
+    if (!irTraits.initFixedIndices())
+      continue;
+    dIRTraits.currLambda=0.01;
+    iterativeRoundingLMSolver.init(&lSolver2, &irTraits, &dIRTraits, 1000);
+    iterativeRoundingLMSolver.solve(true);
+    if (!irTraits.post_checking(iterativeRoundingLMSolver.x)){
+      success=false;
+      break;
+    }
+  }
+  
+  if (success)
+    cout<<"iterative rounding succeeded! "<<endl;
+  else
+    cout<<"iterative rounding failed! "<<endl;
+  /*irTraits.fixedIndices.resize(3);
+  irTraits.fixedValues.resize(3);
+  irTraits.fixedIndices<<12,313,1120;
+  irTraits.fixedValues<<-0, 0, 43;*/
+  //SaddlePoint::check_traits(irTraits, irTraits.x0Small);
+
   return 0;
 }

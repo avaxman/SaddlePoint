@@ -292,21 +292,31 @@ namespace SaddlePoint
       VectorXd modifyVector;
       VectorXd JVals, EVec;
       
-      ST->objective(prevx, EVec);
+     /* ST->objective(prevx, EVec);
       ST->jacobian(prevx, JVals);
       set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
       //cout<<"HVals: "<<HVals<<endl;
       DT->init(HRows, HCols, HVals, x0, modifyVector);
       //cout<<"modifyVector: "<<modifyVector<<endl;
-      set_lhs_matrix(HRows, HCols, JVals, S2D, modifyVector, HVals);
+      set_lhs_matrix(HRows, HCols, JVals, S2D, modifyVector, HVals);*/
       //cout<<"HRows: "<<HRows<<endl;
       //cout<<"HCols: "<<HCols<<endl;
       //cout<<"HVals: "<<HVals<<endl;
       do{
         currIter=0;
         stop=false;
-        if (!ST->pre_optimization(prevx))
+        if (!ST->pre_optimization(prevx)){
+          x=prevx;
           continue;
+        }else {
+          ST->objective(prevx, EVec);
+          ST->jacobian(prevx, JVals);
+          set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
+          //cout<<"HVals: "<<HVals<<endl;
+          DT->init(HRows, HCols, HVals, prevx, modifyVector);
+          //cout<<"modifyVector: "<<modifyVector<<endl;
+          set_lhs_matrix(HRows, HCols, JVals, S2D, modifyVector, HVals);
+        }
         do{
           ST->pre_iteration(prevx);
         
@@ -337,7 +347,9 @@ namespace SaddlePoint
           MatrixXd mRhs=rhs;
           MatrixXd mDirection;
           LS->solve(mRhs,mDirection);
+          //cout<<"mRhs.maxCoeff(): "<<mRhs.maxCoeff()<<endl;
           direction=mDirection.col(0);
+          //cout<<"direction.tail(100): "<<direction.tail(100)<<endl;
           if (verbose)
             cout<<"direction magnitude: "<<direction.norm()<<endl;
           if (direction.norm() < xTolerance * prevx.norm()){
@@ -360,6 +372,11 @@ namespace SaddlePoint
           
           
           ST->objective(x, EVec);
+          cout<<"New energy: "<<EVec.squaredNorm()<<endl;
+          int where;
+          cout<<"EVec.maxCoeff(): "<<EVec.maxCoeff(&where)<<endl;
+          cout<<"where: "<<where<<endl;
+           cout<<"EVec.segment(where-20,40): "<<EVec.segment(where-20,40)<<endl;
           ST->jacobian(x, JVals);
           set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
           DT->update(*ST, HRows, HCols, HVals,  prevx, direction, modifyVector);

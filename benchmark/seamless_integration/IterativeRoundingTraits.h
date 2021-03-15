@@ -44,38 +44,46 @@ public:
     _x0 = x0Small;
   }
   
-  bool pre_optimization(const Eigen::VectorXd& prevx){
+  bool pre_optimization(const Eigen::VectorXd& prevx){return true;}
+  
+  bool initFixedIndices(){
     using namespace Eigen;
     using namespace std;
-    xPrevSmall=prevx;
+    
+    xPrevSmall=xCurrSmall;
     xCurr=UFull*xCurrSmall;
     
     VectorXd roundDiffs(leftIndices.size());
     double minRoundDiff=3276700.0;
     int minRoundIndex=-1;
     for (int i=0;i<leftIndices.size();i++){
-      cout<<"fraction*xCurr(leftIndices(i)): "<<fraction*xCurr(leftIndices(i))<<endl;
-      cout<<"std::round(fraction*xCurr(leftIndices(i))): "<<std::round(fraction*xCurr(leftIndices(i)))<<endl;
+      //cout<<"fraction*xCurr(leftIndices(i)): "<<fraction*xCurr(leftIndices(i))<<endl;
+      //cout<<"std::round(fraction*xCurr(leftIndices(i))): "<<std::round(fraction*xCurr(leftIndices(i)))<<endl;
       roundDiffs(i) = std::fabs(fraction*xCurr(leftIndices(i))-std::round(fraction*xCurr(leftIndices(i))));
       if (roundDiffs(i)<minRoundDiff){
         minRoundIndex=i;
         minRoundDiff=roundDiffs(i);
-        cout<<"minRoundDiff: "<<minRoundDiff<<endl;
+       // cout<<"minRoundDiff: "<<minRoundDiff<<endl;
       }
     }
     
     double origValue = xCurr(leftIndices(minRoundIndex));
     double roundValue = std::round(fraction*xCurr(leftIndices(minRoundIndex)))/fraction;
-    cout<<"origValue,roundValue: "<<origValue<<","<<roundValue<<endl;
+    //cout<<"origValue,roundValue: "<<origValue<<","<<roundValue<<endl;
     fixedIndices.conservativeResize(fixedIndices.size()+1);
     fixedIndices(fixedIndices.size()-1)=leftIndices[minRoundIndex];  //is this under-performing?
     fixedValues.conservativeResize(fixedValues.size()+1);
     fixedValues(fixedValues.size()-1)=roundValue;
+    
+    //cout<<"fixedIndices: "<<fixedIndices<<endl;
+    //cout<<"fixedValues: "<<fixedValues<<endl;
    
     VectorXi newLeftIndices(leftIndices.size()-1);
     newLeftIndices.head(minRoundIndex)=leftIndices.head(minRoundIndex);
     newLeftIndices.tail(newLeftIndices.size()-minRoundIndex)=leftIndices.tail(newLeftIndices.size()-minRoundIndex);
     leftIndices=newLeftIndices;
+    VectorXd JVals;
+    jacobian(Eigen::VectorXd::Random(UFull.cols()), JVals);
     return (minRoundDiff>10e-7); //only proceeding if there is a need to round
   }
   void pre_iteration(const Eigen::VectorXd& prevx){}
@@ -129,6 +137,9 @@ public:
     
     EVec.conservativeResize(fObj.size()+fClose.size()+fConst.size()+fBarrier.size());
     EVec<<fObj*wPoisson,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
+    
+    //cout<<"fConst: "<<fConst<<endl;
+    //cout<<"kaka"<<endl;
     //EVec.conservativeResize(fBarrier.size());
     //EVec<<fBarrier;
   }
@@ -156,8 +167,22 @@ public:
       gConstTriplets.push_back(Triplet<double>(i,fixedIndices(i),1.0));
     
     gConst.setFromTriplets(gConstTriplets.begin(), gConstTriplets.end());
+    
+    /*for (int k=0; k<gConst.outerSize(); ++k)
+      for (SparseMatrix<double>::InnerIterator it(gConst,k); it; ++it)
+        cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
+    
     gConst=gConst*UFull;
     
+    /*for (int k=0; k<gConst.outerSize(); ++k)
+      for (SparseMatrix<double>::InnerIterator it(gConst,k); it; ++it)
+        cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
+    
+    
+    /*for (int k=0; k<UFull.outerSize(); ++k)
+            for (SparseMatrix<double>::InnerIterator it(UFull,k); it; ++it)
+              cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
+  
     //barrier
     VectorXd splineDerivative= VectorXd::Zero(N*FN.rows(),1);
     VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
@@ -250,33 +275,38 @@ public:
         JVals(counter++)=it.value();
       }
     
+    
+    
     //cout<<"JRows.maxCoeff(): "<<JRows.maxCoeff()<<endl;
     //cout<<"JCols.maxCoeff(): "<<JCols.maxCoeff()<<endl;
     //cout<<"done!" <<endl;
     
     
   }
-  bool post_optimization(const Eigen::VectorXd& x){
+  bool post_optimization(const Eigen::VectorXd& x){return true;}
+  
+  bool post_checking(const Eigen::VectorXd& x){
     //std::cout<<"x:"<<x<<std::endl;
     
     xCurr = UFull*x;
     Eigen::VectorXd roundDiffs(fixedIndices.size());
-    int minRoundDiff=3276700.0;
-    int minRoundIndex=-1;
+    //int minRoundDiff=3276700.0;
+    //int minRoundIndex=-1;
     for (int i=0;i<fixedIndices.size();i++){
+     // std::cout<<"xCurr(fixedIndices[i]): "<<xCurr(fixedIndices[i])<<std::endl;
       roundDiffs(i) = std::abs(fraction*xCurr(fixedIndices[i])-std::round(fraction*xCurr(fixedIndices[i])));
-      if (roundDiffs(i)<minRoundDiff){
+      /*if (roundDiffs(i)<minRoundDiff){
         minRoundIndex=i;
         minRoundDiff=roundDiffs(i);
-      }
+      }*/
     }
     
-    if (roundDiffs.maxCoeff()>10e-7){
-      success=false;
-      return true;  //terminate
-    } else {
-      return (leftIndices.size()==0);
-    }
+    xCurrSmall=x;
+
+    return (roundDiffs.maxCoeff()<=10e-7);
+    //} else {
+    //  return (leftIndices.size()==0);
+    //}
   }
   
   
@@ -347,7 +377,7 @@ public:
       
     xCurrSmall=x0Small;
     xPrevSmall=xCurrSmall;
-    fraction=1;
+    fraction=1.0;
     
     VectorXd JVals;
     jacobian(Eigen::VectorXd::Random(UFull.cols()), JVals);

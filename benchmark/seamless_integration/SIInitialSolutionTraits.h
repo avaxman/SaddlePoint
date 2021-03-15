@@ -286,6 +286,7 @@ public:
     //cout<<"I: "<<I<<endl;
     //cout<<"J: "<<J<<endl;
     // cout<<"S: "<<S<<endl;
+    /**
     //creating small dense matrix with all non-zero columns
     VectorXi uniqueJVec(uniqueJ.size());
     VectorXi JMask=VectorXi::Constant(C.cols(),-1);
@@ -338,6 +339,7 @@ public:
     permMat.setFromTriplets(permMatTriplets.begin(), permMatTriplets.end());
     
     UFull=permMat*URaw;
+     **/
     
     //cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
     

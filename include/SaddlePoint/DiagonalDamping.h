@@ -18,10 +18,8 @@
 namespace SaddlePoint{
 template<class SolverTraits>
 class DiagonalDamping{
-private:
-  
-  double currLambda;
 public:
+  double currLambda;
   void init(const Eigen::VectorXi& HRows,
             const Eigen::VectorXi& HCols,
             const Eigen::VectorXd& HVals,
@@ -48,10 +46,10 @@ public:
     double prevEnergy2=EVec.squaredNorm();
     ST.objective(currSolution+direction,EVec);
     double newEnergy2=EVec.squaredNorm();
-    std::cout<<"prevEnergy2: "<<prevEnergy2<<std::endl;
-    std::cout<<"newEnergy2: "<<newEnergy2<<std::endl;
+    //std::cout<<"prevEnergy2: "<<prevEnergy2<<std::endl;
+    //std::cout<<"newEnergy2: "<<newEnergy2<<std::endl;
     //currLambda=0.0;
-    if (prevEnergy2>newEnergy2)  //progress; making it more gradient descent
+    if ((prevEnergy2>newEnergy2)&&(newEnergy2!=std::numeric_limits<double>::infinity()))  //progress; making it more gradient descent
       currLambda/=10.0;
     else
       currLambda*=10.0;
