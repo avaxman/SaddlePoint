@@ -60,14 +60,13 @@ int main(int argc, char *argv[])
   initialSolutionLMSolver.init(&lSolver1, &slTraits, &dISTraits, 1000);
   //SaddlePoint::check_traits(slTraits, slTraits.initXandFieldSmall);
   initialSolutionLMSolver.solve(true);
-  cout<<"(x-x0).lpNorm<Infinity>(): "<<(initialSolutionLMSolver.x-initialSolutionLMSolver.x0).lpNorm<Infinity>()<<endl;
+  //cout<<"(x-x0).lpNorm<Infinity>(): "<<(initialSolutionLMSolver.x-initialSolutionLMSolver.x0).lpNorm<Infinity>()<<endl;
   
-  cout<<"initialSolutionLMSolver.x.head(10): "<<initialSolutionLMSolver.x.head(10)<<endl;
+  //cout<<"initialSolutionLMSolver.x.head(10): "<<initialSolutionLMSolver.x.head(10)<<endl;
   
   //Iterative rounding
   irTraits.init(slTraits, initialSolutionLMSolver.x);
   
-  return 0;
   bool success=true;
   for (int i=0;i<irTraits.singularIndices.size();i++){
     cout<<"i: "<<i<<endl;

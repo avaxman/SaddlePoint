@@ -51,6 +51,8 @@ public:
     VectorXd xcurr=xAndCurrField.head(x0.size());
     VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
     
+    //cout<<"currField.tail(100): "<<currField.tail(100)<<endl;
+    
     VectorXd fIntegration = (currField - paramLength*G2*xcurr);
     VectorXd fClose = currField-rawField2Vec;
     
@@ -77,6 +79,10 @@ public:
     EVec<<fIntegration*wIntegration,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
     //EVec.conservativeResize(fBarrier.size());
     //EVec<<fBarrier;
+    
+    //cout<<"fIntegration.head(10): "<<fIntegration.head(10)<<endl;
+    //cout<<"wIntegration: "<<wIntegration<<endl;
+    
   }
   
   
@@ -249,9 +255,9 @@ public:
     rawField.array()/=avgGradNorm;
     paramLength/=avgGradNorm;
     
-    
-    
     igl::local_basis(V,F,B1,B2, FN);
+    //cout<<"B1.block(0,0,10,3): "<<B1.block(0,0,10,3)<<endl;
+    //cout<<"B2.block(0,0,10,3): "<<B2.block(0,0,10,3)<<endl;
     
     //creating G2
     vector<Triplet<double>> reducMatTris;
@@ -268,6 +274,10 @@ public:
     reducMat.resize(2*N*F.rows(), 3*N*F.rows());
     reducMat.setFromTriplets(reducMatTris.begin(), reducMatTris.end());
     G2=reducMat*G;
+    
+    //for (int k=0; k<reducMat.outerSize(); ++k)
+    //     for (SparseMatrix<double>::InnerIterator it(reducMat,k); it; ++it)
+     //      cout<<it.row()<<","<<it.col()<<","<<it.value()<<";"<<endl;
     
     //Reducing constraint matrix
     VectorXi I(C.nonZeros()),J(C.nonZeros());

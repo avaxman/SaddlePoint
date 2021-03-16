@@ -37,7 +37,7 @@ namespace SaddlePoint
     
     
     int maxIterations;
-    double xTolerance;
+    double funcTolerance;
     double fooTolerance;
     
     /*void TestMatrixOperations(){
@@ -248,14 +248,14 @@ namespace SaddlePoint
               SolverTraits* _ST,
               DampingTraits* _DT,
               int _maxIterations=100,
-              double _xTolerance=10e-9,
-              double _fooTolerance=10e-9){
+              double _funcTolerance=10e-10,
+              double _fooTolerance=10e-10){
       
       LS=_LS;
       ST=_ST;
       DT=_DT;
       maxIterations=_maxIterations;
-      xTolerance=_xTolerance;
+      funcTolerance=_funcTolerance;
       fooTolerance=_fooTolerance;
       //analysing pattern
       MatrixPattern(ST->JRows, ST->JCols,HRows,HCols,S2D);
@@ -352,7 +352,7 @@ namespace SaddlePoint
           //cout<<"direction.tail(100): "<<direction.tail(100)<<endl;
           if (verbose)
             cout<<"direction magnitude: "<<direction.norm()<<endl;
-          if (direction.norm() < xTolerance * prevx.norm()){
+          if (direction.norm() < funcTolerance){
             x=prevx;
             if (verbose)
               cout<<"Stopping since direction magnitude small."<<endl;
@@ -365,18 +365,23 @@ namespace SaddlePoint
           double newEnergy2=EVec.squaredNorm();
           
           if (prevEnergy2>newEnergy2){
-              x=prevx+direction;
+            x=prevx+direction;{
+              if (std::abs(prevEnergy2-newEnergy2)<funcTolerance){
+                if (verbose)
+                  cout<<"Stopping sincefunction didn't change above tolerance."<<endl;
+                break;
+              }
+            }
   
           }else
               x=prevx;
           
-          
           ST->objective(x, EVec);
           cout<<"New energy: "<<EVec.squaredNorm()<<endl;
-          int where;
-          cout<<"EVec.maxCoeff(): "<<EVec.maxCoeff(&where)<<endl;
-          cout<<"where: "<<where<<endl;
-           cout<<"EVec.segment(where-20,40): "<<EVec.segment(where-20,40)<<endl;
+          //int where;
+         // cout<<"EVec.maxCoeff(): "<<EVec.maxCoeff(&where)<<endl;
+          //cout<<"where: "<<where<<endl;
+           //cout<<"EVec.segment(where-20,40): "<<EVec.segment(where-20,40)<<endl;
           ST->jacobian(x, JVals);
           set_lhs_matrix(HRows, HCols, JVals, S2D, Eigen::VectorXd::Zero(ST->xSize), HVals);
           DT->update(*ST, HRows, HCols, HVals,  prevx, direction, modifyVector);
