@@ -240,7 +240,7 @@ public:
   }
   
   
-  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initCurrXandFieldSmall, bool roundSeams){
+  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initCurrXandFieldSmall, bool _roundSeams){
     using namespace std;
     using namespace Eigen;
     
@@ -254,7 +254,7 @@ public:
     N=sist.N,n=sist.n;
     lengthRatio=sist.lengthRatio; paramLength=sist.paramLength;
     wConst=sist.wConst, wBarrier=sist.wBarrier, wClose=sist.wClose, s=sist.s;
-    roundSeams=roundSeams;
+    roundSeams=_roundSeams;
     roundedSingularities=false;
     
     wPoisson=1;
@@ -307,6 +307,7 @@ public:
       leftIndices=integerIndices;
     else
       leftIndices=singularIndices;
+  
     
     xCurrSmall=x0Small;
     xPrevSmall=xCurrSmall;

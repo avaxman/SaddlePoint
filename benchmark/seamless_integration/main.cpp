@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
   //cout<<"initialSolutionLMSolver.x.head(10): "<<initialSolutionLMSolver.x.head(10)<<endl;
   
   //Iterative rounding
-  irTraits.init(slTraits, initialSolutionLMSolver.x, false);
+  irTraits.init(slTraits, initialSolutionLMSolver.x, true);
   
   bool success=true;
   int i=0;
