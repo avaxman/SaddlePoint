@@ -11,9 +11,6 @@
 
 typedef SaddlePoint::EigenSolverWrapper<Eigen::SimplicialLLT<Eigen::SparseMatrix<double> > > LinearSolver;
 
-
-
-
 SIInitialSolutionTraits<LinearSolver> slTraits;
 LinearSolver lSolver1,lSolver2;
 SaddlePoint::DiagonalDamping<SIInitialSolutionTraits<LinearSolver>> dISTraits(0.01);
@@ -65,11 +62,12 @@ int main(int argc, char *argv[])
   //cout<<"initialSolutionLMSolver.x.head(10): "<<initialSolutionLMSolver.x.head(10)<<endl;
   
   //Iterative rounding
-  irTraits.init(slTraits, initialSolutionLMSolver.x);
+  irTraits.init(slTraits, initialSolutionLMSolver.x, false);
   
   bool success=true;
-  for (int i=0;i<irTraits.singularIndices.size();i++){
-    cout<<"i: "<<i<<endl;
+  int i=0;
+  while (irTraits.leftIndices.size()!=0){
+    cout<<"i: "<<i++<<endl;
     if (!irTraits.initFixedIndices())
       continue;
     dIRTraits.currLambda=0.01;
@@ -80,16 +78,11 @@ int main(int argc, char *argv[])
       break;
     }
   }
+
   
   if (success)
     cout<<"iterative rounding succeeded! "<<endl;
   else
     cout<<"iterative rounding failed! "<<endl;
-  /*irTraits.fixedIndices.resize(3);
-  irTraits.fixedValues.resize(3);
-  irTraits.fixedIndices<<12,313,1120;
-  irTraits.fixedValues<<-0, 0, 43;*/
-  //SaddlePoint::check_traits(irTraits, irTraits.x0Small);
-
   return 0;
 }

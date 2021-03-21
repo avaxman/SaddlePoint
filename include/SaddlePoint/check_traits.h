@@ -27,29 +27,29 @@ namespace SaddlePoint
     cout<<"Solution Size: "<<Traits.xSize<<endl;
     
     VectorXd EVec;
-    VectorXd JVals;
-    Traits.objective(CurrSolution, EVec);
-    Traits.jacobian(CurrSolution, JVals);
+    //VectorXd JVals;
+    SparseMatrix<double> TraitGradient;
+    Traits.objective_jacobian(CurrSolution, EVec, TraitGradient, true);
+    //Traits.jacobian(CurrSolution, JVals);
     
-    int MaxRow=Traits.JRows.maxCoeff()+1;
+    /*int MaxRow=Traits.JRows.maxCoeff()+1;
     vector<Triplet<double> > GradTris;
     
     for (int i=0;i<Traits.JRows.size();i++)
       GradTris.push_back(Triplet<double>(Traits.JRows(i), Traits.JCols(i), JVals(i)));
     
-    
+  
     SparseMatrix<double> TraitGradient(MaxRow, CurrSolution.size());
-    TraitGradient.setFromTriplets(GradTris.begin(),GradTris.end());
-    
-    SparseMatrix<double> FEGradient(MaxRow, CurrSolution.size());
+    TraitGradient.setFromTriplets(GradTris.begin(),GradTris.end());*/
+
+    SparseMatrix<double> stubMatrix;
+    SparseMatrix<double> FEGradient(TraitGradient.rows(), CurrSolution.size());
     vector<Triplet<double> > FEGradientTris;
     for (int i=0;i<CurrSolution.size();i++){
       VectorXd vh(CurrSolution.size()); vh.setZero(); vh(i)=10e-5;
-      Traits.objective(CurrSolution+vh, EVec);
-      Traits.jacobian(CurrSolution+vh, JVals);
+      Traits.objective_jacobian(CurrSolution+vh, EVec, stubMatrix, false);
       VectorXd EnergyPlus=EVec;
-      Traits.objective(CurrSolution-vh, EVec);
-      Traits.jacobian(CurrSolution-vh, JVals);
+      Traits.objective_jacobian(CurrSolution-vh, EVec, stubMatrix, false);
       VectorXd EnergyMinus=EVec;
       VectorXd CurrGradient=(EnergyPlus-EnergyMinus)/(2*10e-5);
       //cout<<CurrGradient<<endl;

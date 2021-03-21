@@ -18,9 +18,10 @@
 namespace SaddlePoint
   {
   
+  template <typename Scalar>
   void sparse_block(const Eigen::MatrixXi& blockIndices,
-                    const std::vector<Eigen::SparseMatrix<double> >& blockMats,
-                    Eigen::SparseMatrix<double>& result){
+                    const std::vector<Eigen::SparseMatrix<Scalar> >& blockMats,
+                    Eigen::SparseMatrix<Scalar>& result){
     
     
     //assessing dimensions
@@ -36,12 +37,12 @@ namespace SaddlePoint
     int colSize=blockColOffsets(blockIndices.cols()-1)+blockMats[blockIndices(0,blockIndices.cols()-1)].cols();
     
     result.conservativeResize(rowSize, colSize);
-    std::vector<Eigen::Triplet<double>> resultTriplets;
+    std::vector<Eigen::Triplet<Scalar>> resultTriplets;
     for (int i=0;i<blockRowOffsets.size();i++)
        for (int j=0;j<blockColOffsets.size();j++)
          for (int k=0; k<blockMats[i].outerSize(); ++k)
-           for (Eigen::SparseMatrix<double>::InnerIterator it(blockMats[i],k); it; ++it)
-             resultTriplets.push_back(Eigen::Triplet<double>(blockRowOffsets(i)+it.row(),blockColOffsets(j)+it.col(),it.value()));
+           for (typename Eigen::SparseMatrix<Scalar>::InnerIterator it(blockMats[i],k); it; ++it)
+             resultTriplets.push_back(Eigen::Triplet<Scalar>(blockRowOffsets(i)+it.row(),blockColOffsets(j)+it.col(),it.value()));
     
     
     result.setFromTriplets(resultTriplets.begin(), resultTriplets.end());

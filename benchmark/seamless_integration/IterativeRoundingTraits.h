@@ -22,8 +22,6 @@ template <class LinearSolver>
 class IterativeRoundingTraits{
 public:
   
-  
-  Eigen::VectorXi JRows, JCols;
   int xSize;
   int ESize;
   
@@ -37,6 +35,7 @@ public:
   double lengthRatio, paramLength, fraction;
   double wConst, wBarrier, wClose, s, wPoisson;
   Eigen::VectorXi leftIndices;
+  bool roundedSingularities, roundSeams;
   
   bool success;
   
@@ -45,6 +44,9 @@ public:
   }
   
   bool pre_optimization(const Eigen::VectorXd& prevx){return true;}
+  void pre_iteration(const Eigen::VectorXd& prevx){}
+  bool post_iteration(const Eigen::VectorXd& x){return false;}
+  
   
   bool initFixedIndices(){
     using namespace Eigen;
@@ -53,6 +55,7 @@ public:
     xPrevSmall=xCurrSmall;
     xCurr=UFull*xCurrSmall;
     
+
     VectorXd roundDiffs(leftIndices.size());
     double minRoundDiff=3276700.0;
     int minRoundIndex=-1;
@@ -63,7 +66,7 @@ public:
       if (roundDiffs(i)<minRoundDiff){
         minRoundIndex=i;
         minRoundDiff=roundDiffs(i);
-       // cout<<"minRoundDiff: "<<minRoundDiff<<endl;
+        // cout<<"minRoundDiff: "<<minRoundDiff<<endl;
       }
     }
     
@@ -77,43 +80,33 @@ public:
     
     //cout<<"fixedIndices: "<<fixedIndices<<endl;
     //cout<<"fixedValues: "<<fixedValues<<endl;
-   
+    
     VectorXi newLeftIndices(leftIndices.size()-1);
     newLeftIndices.head(minRoundIndex)=leftIndices.head(minRoundIndex);
     newLeftIndices.tail(newLeftIndices.size()-minRoundIndex)=leftIndices.tail(newLeftIndices.size()-minRoundIndex);
     leftIndices=newLeftIndices;
-    VectorXd JVals;
-    jacobian(Eigen::VectorXd::Random(UFull.cols()), JVals);
+    //VectorXd JVals;
+    //jacobian(Eigen::VectorXd::Random(UFull.cols()), JVals);
+    
+    if ((leftIndices.size()==0)&&(!roundSeams)&&(!roundedSingularities)){  //completed rounding singularities;starting to round rest of seams
+      leftIndices=integerIndices;
+      roundedSingularities=true;
+    }
+    
     return (minRoundDiff>10e-7); //only proceeding if there is a need to round
   }
-  void pre_iteration(const Eigen::VectorXd& prevx){}
-  bool post_iteration(const Eigen::VectorXd& x){return false;}
   
-  void objective(const Eigen::VectorXd& xCurrSmall,  Eigen::VectorXd& EVec){
+  
+  
+  void objective_jacobian(const Eigen::VectorXd& xCurrSmall,  Eigen::VectorXd& EVec, Eigen::SparseMatrix<double>& J, bool computeJacobian){
     using namespace std;
     using namespace Eigen;
     
-    /*xcurr = U*xcurrSmall;
-    fObj = G2*U*xcurrSmall*paramLength - rawField2;
-    gObj = G2*U*paramLength;
-    %fObj = A*xcurr-b;
-    %gObj = A*U;
-    fClose = (xcurrSmall-xprevSmall);
-    gClose=speye(length(xcurrSmall));
-    %fLinConst=C*xcurr;
-
-    fConst = (xcurr(fixedIndices)-fixedValues);
-
-    nf = length(FN);
-    currField = G2*xcurr*paramLength;
-    fBarrier = zeros(N*nf,1);
-    splineDerivative= zeros(N*nf,1);
-    barSpline=zeros(N*nf,1);*/
     
     VectorXd xCurr = UFull*xCurrSmall;
     VectorXd fObj = G2*UFull*xCurrSmall*paramLength - rawField2Vec;
     VectorXd fClose = (xCurrSmall-xPrevSmall);
-       
+    
     VectorXd fConst(fixedIndices.size());
     for (int i=0;i<fixedIndices.size();i++)
       fConst(i) = xCurr(fixedIndices(i))-fixedValues(i);
@@ -121,6 +114,10 @@ public:
     
     VectorXd currField = G2*xCurr*paramLength;
     VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
+    VectorXd barSpline = VectorXd::Zero(N*FN.rows());
+    VectorXd splineDerivative;
+    if (computeJacobian)
+      splineDerivative=VectorXd::Zero(N*FN.rows(),1);
     
     for (int i=0;i<FN.rows();i++){
       for (int j=0;j<N;j++){
@@ -132,33 +129,33 @@ public:
         if (imagProduct<=0) barResult2 = std::numeric_limits<double>::infinity();
         if (imagProduct>=s) barResult2 = 0.0;
         fBarrier(N*i+j)=barResult2;
+        
+        if (computeJacobian){
+          barSpline(N*i+j)=barResult;
+          
+          double splineDerivativeLocal=3.0*(imagProduct*imagProduct/(s*s*s)) -6.0*(imagProduct/(s*s)) + 3.0/s;
+          if (imagProduct<=0) splineDerivativeLocal=std::numeric_limits<double>::infinity();
+          if (imagProduct>=s) splineDerivativeLocal=0.0;
+          splineDerivative(N*i+j)=splineDerivativeLocal;
+          
+          SImagField.row(N*i+j)<<nextVec(1)/origFieldVolumes(i,j), -nextVec(0)/origFieldVolumes(i,j), -currVec(1)/origFieldVolumes(i,j),currVec(0)/origFieldVolumes(i,j);
+        }
       }
     }
     
     EVec.conservativeResize(fObj.size()+fClose.size()+fConst.size()+fBarrier.size());
     EVec<<fObj*wPoisson,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
     
-    //cout<<"fConst: "<<fConst<<endl;
-    //cout<<"kaka"<<endl;
-    //EVec.conservativeResize(fBarrier.size());
-    //EVec<<fBarrier;
-  }
-  
-  
-  void jacobian(const Eigen::VectorXd& xAndCurrFieldSmall, Eigen::VectorXd& JVals){
-    using namespace Eigen;
-    using namespace std;
+    if (!computeJacobian)
+      return;
     
-    VectorXd xCurr = UFull*xCurrSmall;
-    VectorXd currField = G2*xCurr*paramLength;
-       
     //Poisson error
     SparseMatrix<double> gObj = G2*UFull*paramLength;
     
     //Closeness
     SparseMatrix<double> gClose;
     igl::speye(xCurrSmall.size(), gClose);
-  
+    
     
     //fixedIndices constness
     SparseMatrix<double> gConst(fixedIndices.size(), xCurr.size());
@@ -169,52 +166,11 @@ public:
     gConst.setFromTriplets(gConstTriplets.begin(), gConstTriplets.end());
     
     /*for (int k=0; k<gConst.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(gConst,k); it; ++it)
-        cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
+     for (SparseMatrix<double>::InnerIterator it(gConst,k); it; ++it)
+     cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
     
     gConst=gConst*UFull;
     
-    /*for (int k=0; k<gConst.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(gConst,k); it; ++it)
-        cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
-    
-    
-    /*for (int k=0; k<UFull.outerSize(); ++k)
-            for (SparseMatrix<double>::InnerIterator it(UFull,k); it; ++it)
-              cout<<it.row()+1<<","<<it.col()+1<<","<<it.value()<<";"<<endl;*/
-  
-    //barrier
-    VectorXd splineDerivative= VectorXd::Zero(N*FN.rows(),1);
-    VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
-    VectorXd barSpline = VectorXd::Zero(N*FN.rows());
-    SImagField.conservativeResize(IImagField.rows(), IImagField.cols());
-    for (int i=0;i<FN.rows();i++){
-      for (int j=0;j<N;j++){
-        RowVector2d currVec=currField.segment(2*N*i+2*j,2);
-        RowVector2d nextVec=currField.segment(2*N*i+2*((j+1)%N),2);
-        double imagProduct = (currVec(0)*nextVec(1) - currVec(1)*nextVec(0))/origFieldVolumes(i,j);
-        double barResult = (imagProduct/s)*(imagProduct/s)*(imagProduct/s) - 3.0*(imagProduct/s)*(imagProduct/s) + 3.0*(imagProduct/s);
-        double barResult2 = 1.0/barResult - 1.0;
-        if (imagProduct<=0) barResult2 = std::numeric_limits<double>::infinity();
-        if (imagProduct>=s) barResult2 = 0.0;
-        fBarrier(N*i+j)=barResult2;
-        barSpline(N*i+j)=barResult;
-        
-        double splineDerivativeLocal=3.0*(imagProduct*imagProduct/(s*s*s)) -6.0*(imagProduct/(s*s)) + 3.0/s;
-        if (imagProduct<=0) splineDerivativeLocal=std::numeric_limits<double>::infinity();
-        if (imagProduct>=s) splineDerivativeLocal=0.0;
-        splineDerivative(N*i+j)=splineDerivativeLocal;
-        
-        SImagField.row(N*i+j)<<nextVec(1)/origFieldVolumes(i,j), -nextVec(0)/origFieldVolumes(i,j), -currVec(1)/origFieldVolumes(i,j),currVec(0)/origFieldVolumes(i,j);
-        
-      }
-    }
-    
-    /*cout<<"xAndCurrFieldSmall: "<<xAndCurrFieldSmall<<endl;
-    
-    cout<<"IImagField: "<<IImagField<<endl;
-    cout<<"JImagField: "<<JImagField<<endl;
-    cout<<"SImagField: "<<SImagField<<endl;*/
     SparseMatrix<double> gImagField(N*FN.rows(), currField.size());
     vector<Triplet<double>> gImagTriplets;
     //cout<<"IImagField.maxCoeff(): "<<IImagField.maxCoeff()<<endl;
@@ -231,13 +187,13 @@ public:
     VectorXd barDerVec=-splineDerivative.array()/((barSpline.array()*barSpline.array()).array());
     //cout<<"barDerVec(11): "<<barDerVec(11)<<endl;
     /*barDerVec(fBarrier==Inf)=Inf;
-    barDerVec(isinf(barDerVec))=0;
-    barDerVec(isnan(barDerVec))=0;*/
+     barDerVec(isinf(barDerVec))=0;
+     barDerVec(isnan(barDerVec))=0;*/
     for (int i=0;i<fBarrier.size();i++)
       if (std::abs(fBarrier(i))<10e-9)
         barDerVec(i)=0.0;
-    else if (fBarrier(i)==std::numeric_limits<double>::infinity())
-      barDerVec(i)=std::numeric_limits<double>::infinity();
+      else if (fBarrier(i)==std::numeric_limits<double>::infinity())
+        barDerVec(i)=std::numeric_limits<double>::infinity();
     
     SparseMatrix<double> gBarrierFunc(barDerVec.size(), barDerVec.size());
     vector<Triplet<double>> gBarrierFuncTris;
@@ -246,7 +202,7 @@ public:
     gBarrierFunc.setFromTriplets(gBarrierFuncTris.begin(), gBarrierFuncTris.end());
     
     SparseMatrix<double> gBarrier = gBarrierFunc*gImagField*G2*UFull*paramLength;
-  
+    
     MatrixXi blockIndices(4,1);
     blockIndices<<0,1,2,3;
     vector<SparseMatrix<double>> JMats;
@@ -254,36 +210,10 @@ public:
     JMats.push_back(gClose*wClose);
     JMats.push_back(gConst*wConst);
     JMats.push_back(gBarrier*wBarrier);
-    SparseMatrix<double> J;
     SaddlePoint::sparse_block(blockIndices, JMats,J);
-    //J=gBarrier;
-    //cout<<"gBarrier: "<<gBarrier<<endl;
-    /*cout<<"gIntegration.rows(): "<<gIntegration.rows()<<endl;
-    cout<<"gClose.rows(): "<<gClose.rows()<<endl;
-    cout<<"gConst.rows(): "<<gConst.rows()<<endl;
-    cout<<"gBarrier.rows(): "<<gBarrier.rows()<<endl;*/
-    
-    JRows.conservativeResize(J.nonZeros());
-    JCols.conservativeResize(J.nonZeros());
-    JVals.conservativeResize(J.nonZeros());
-    int counter=0;
-    SparseMatrix<double> JT=J.transpose();
-    for (int k=0; k<JT.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(JT,k); it; ++it){
-        JRows(counter)=it.col();
-        JCols(counter)=it.row();
-        JVals(counter++)=it.value();
-      }
-    
-    
-    
-    //cout<<"JRows.maxCoeff(): "<<JRows.maxCoeff()<<endl;
-    //cout<<"JCols.maxCoeff(): "<<JCols.maxCoeff()<<endl;
-    //cout<<"done!" <<endl;
-    
-    
   }
-  bool post_optimization(const Eigen::VectorXd& x){return true;}
+  
+  
   
   bool post_checking(const Eigen::VectorXd& x){
     //std::cout<<"x:"<<x<<std::endl;
@@ -293,16 +223,16 @@ public:
     //int minRoundDiff=3276700.0;
     //int minRoundIndex=-1;
     for (int i=0;i<fixedIndices.size();i++){
-     // std::cout<<"xCurr(fixedIndices[i]): "<<xCurr(fixedIndices[i])<<std::endl;
+      // std::cout<<"xCurr(fixedIndices[i]): "<<xCurr(fixedIndices[i])<<std::endl;
       roundDiffs(i) = std::abs(fraction*xCurr(fixedIndices[i])-std::round(fraction*xCurr(fixedIndices[i])));
       /*if (roundDiffs(i)<minRoundDiff){
-        minRoundIndex=i;
-        minRoundDiff=roundDiffs(i);
-      }*/
+       minRoundIndex=i;
+       minRoundDiff=roundDiffs(i);
+       }*/
     }
     
     xCurrSmall=x;
-
+    
     return (roundDiffs.maxCoeff()<=10e-7);
     //} else {
     //  return (leftIndices.size()==0);
@@ -310,7 +240,7 @@ public:
   }
   
   
-  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initCurrXandFieldSmall){
+  void init(const SIInitialSolutionTraits<LinearSolver>& sist, const Eigen::VectorXd& initCurrXandFieldSmall, bool roundSeams){
     using namespace std;
     using namespace Eigen;
     
@@ -324,6 +254,8 @@ public:
     N=sist.N,n=sist.n;
     lengthRatio=sist.lengthRatio; paramLength=sist.paramLength;
     wConst=sist.wConst, wBarrier=sist.wBarrier, wClose=sist.wClose, s=sist.s;
+    roundSeams=roundSeams;
+    roundedSingularities=false;
     
     wPoisson=1;
     wClose = 0.01;
@@ -333,7 +265,7 @@ public:
     
     
     VectorXd currXandField=UExt*initCurrXandFieldSmall;
-
+    
     xSize=UFull.cols();
     x0=currXandField.head(UFull.rows());
     x0Small=initCurrXandFieldSmall.head(UFull.cols());
@@ -367,22 +299,25 @@ public:
     
     
     cout<<"min origFieldVolumes: "<<origFieldVolumes.colwise().minCoeff()<<endl;
-
+    
     fixedIndices=VectorXi::Zero(0);
     fixedValues=VectorXd::Zero(0.0);
     
-    leftIndices=singularIndices;
-    /*for (int i=0;i<singularIndices.size();i++)
-      leftIndices.push_back(singularIndices.size());*/
-      
+    if (roundSeams)
+      leftIndices=integerIndices;
+    else
+      leftIndices=singularIndices;
+    
     xCurrSmall=x0Small;
     xPrevSmall=xCurrSmall;
     fraction=1.0;
     
-    VectorXd JVals;
-    jacobian(Eigen::VectorXd::Random(UFull.cols()), JVals);
+    //SparseMatrix<double> J;
+    //VectorXd EVec;
+    //objective_jacobian(Eigen::VectorXd::Random(UFull.cols()), EVec, J, true);
   }
 };
+
 
 
 

@@ -21,8 +21,7 @@ template <class LinearSolver>
 class SIInitialSolutionTraits{
 public:
   
-  
-  Eigen::VectorXi JRows, JCols;
+  //Eigen::VectorXi JRows, JCols;
   int xSize;
   int ESize;
   
@@ -36,14 +35,85 @@ public:
   double lengthRatio, paramLength;
   double wIntegration,wConst, wBarrier, wClose, s;
   
-  bool pre_optimization(Eigen::VectorXd& prev){return true;}
-  void initial_solution(Eigen::VectorXd& _x0){
-    _x0 = initXandFieldSmall;
-  }
+  void initial_solution(Eigen::VectorXd& _x0){_x0 = initXandFieldSmall;}
   void pre_iteration(const Eigen::VectorXd& prevx){}
   bool post_iteration(const Eigen::VectorXd& x){return false;}
   
-  void objective(const Eigen::VectorXd& xAndCurrFieldSmall,  Eigen::VectorXd& EVec){
+  void jacobian_pattern(Eigen::SparseMatrix<int> JPattern)
+  {
+    using namespace std;
+    using namespace Eigen;
+    //VectorXd xAndCurrField = UExt*xAndCurrFieldSmall;
+    //VectorXd xcurr=xAndCurrField.head(x0.size());
+    //VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
+    
+    //cout<<"currField.tail(100): "<<currField.tail(100)<<endl;
+    SparseMatrix<int> UExtPattern(UExt.rows(), UExt.cols());
+    vector<Triplet<int>> UExtTris;
+    for (int k=0; k<UExt.outerSize(); ++k)
+      for (SparseMatrix<double>::InnerIterator it(UExt,k); it; ++it)
+        UExtTris.push_back(Triplet<int>(it.row(), it.col(), 1));
+    
+    UExtPattern.setFromTriplets(UExtTris.begin(), UExtTris.end());
+  
+    SparseMatrix<int> gIntegrationPattern;
+    vector<Triplet<int>> gIntegrationTriplets;
+    for (int k=0; k<G2.outerSize(); ++k)
+      for (SparseMatrix<double>::InnerIterator it(G2,k); it; ++it)
+        gIntegrationTriplets.push_back(Triplet<int>(it.row(), it.col(), 1));
+    
+    
+    for (int i=0;i<rawField2Vec.size();i++)
+      gIntegrationTriplets.push_back(Triplet<int>(i,G2.cols()+i,1));
+    
+  
+    
+    gIntegrationPattern.resize(G2.rows(), G2.cols()+rawField2Vec.size());
+    gIntegrationPattern.setFromTriplets(gIntegrationTriplets.begin(), gIntegrationTriplets.end());
+    gIntegrationPattern=gIntegrationPattern*UExtPattern;
+    
+    SparseMatrix<int> gClosePattern(rawField2Vec.size(),UExt.rows());
+    vector<Triplet<int>> gCloseTriplets;
+    for (int i=0;i<rawField2Vec.size();i++)
+      gCloseTriplets.push_back(Triplet<int>(i,x0.size()+i,1));
+    
+    gClosePattern.setFromTriplets(gCloseTriplets.begin(), gCloseTriplets.end());
+    gClosePattern=gClosePattern*UExtPattern;
+    
+    SparseMatrix<int> gConstPattern(fixedIndices.size(), UExt.rows());
+    vector<Triplet<int>> gConstTriplets;
+    for (int i=0;i<fixedIndices.size();i++)
+      gConstTriplets.push_back(Triplet<int>(i,fixedIndices(i),1));
+    
+    gConstPattern.setFromTriplets(gConstTriplets.begin(), gConstTriplets.end());
+    gConstPattern=gConstPattern*UExtPattern;
+    
+    
+    SparseMatrix<int> gImagFieldPattern(N*FN.rows(), rawField2Vec.size());
+    vector<Triplet<int>> gImagTriplets;
+    
+    for (int i=0;i<IImagField.rows();i++)
+      for (int j=0;j<IImagField.cols();j++)
+        gImagTriplets.push_back(Triplet<int>(IImagField(i,j), JImagField(i,j),1));
+    
+    gImagFieldPattern.setFromTriplets(gImagTriplets.begin(), gImagTriplets.end());
+    
+    SparseMatrix<int> gBarrierPattern = gImagFieldPattern*gClosePattern;
+    
+    MatrixXi blockIndices(4,1);
+    blockIndices<<0,1,2,3;
+    vector<SparseMatrix<int>> JMats;
+    JMats.push_back(gIntegrationPattern);
+    JMats.push_back(gClosePattern);
+    JMats.push_back(gConstPattern);
+    JMats.push_back(gBarrierPattern);
+    SaddlePoint::sparse_block(blockIndices, JMats,JPattern);
+    
+  }
+  
+  
+  void objective_jacobian(const Eigen::VectorXd& xAndCurrFieldSmall,  Eigen::VectorXd& EVec, Eigen::SparseMatrix<double>& J, const bool computeJacobian)
+  {
     using namespace std;
     using namespace Eigen;
     
@@ -53,14 +123,28 @@ public:
     
     //cout<<"currField.tail(100): "<<currField.tail(100)<<endl;
     
+    //Integration
     VectorXd fIntegration = (currField - paramLength*G2*xcurr);
+    
+    
+    //Closeness
     VectorXd fClose = currField-rawField2Vec;
     
+    //fixedIndices constness
     VectorXd fConst(fixedIndices.size());
     for (int i=0;i<fixedIndices.size();i++)
       fConst(i) = xcurr(fixedIndices(i))-fixedValues(i);
     
+    
+    //injectivity barrier
+    
     VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
+    VectorXd barSpline = VectorXd::Zero(N*FN.rows());
+    VectorXd splineDerivative;
+    if (computeJacobian){
+      splineDerivative= VectorXd::Zero(N*FN.rows(),1);
+      SImagField.conservativeResize(IImagField.rows(), IImagField.cols());
+    }
     
     for (int i=0;i<FN.rows();i++){
       for (int j=0;j<N;j++){
@@ -72,29 +156,26 @@ public:
         if (imagProduct<=0) barResult2 = std::numeric_limits<double>::infinity();
         if (imagProduct>=s) barResult2 = 0.0;
         fBarrier(N*i+j)=barResult2;
+        barSpline(N*i+j)=barResult;
+        
+        if (computeJacobian){
+          double splineDerivativeLocal=3.0*(imagProduct*imagProduct/(s*s*s)) -6.0*(imagProduct/(s*s)) + 3.0/s;
+          if (imagProduct<=0) splineDerivativeLocal=std::numeric_limits<double>::infinity();
+          if (imagProduct>=s) splineDerivativeLocal=0.0;
+          splineDerivative(N*i+j)=splineDerivativeLocal;
+        
+          SImagField.row(N*i+j)<<nextVec(1)/origFieldVolumes(i,j), -nextVec(0)/origFieldVolumes(i,j), -currVec(1)/origFieldVolumes(i,j),currVec(0)/origFieldVolumes(i,j);
+        }
       }
     }
     
+    
     EVec.conservativeResize(fIntegration.size()+fClose.size()+fConst.size()+fBarrier.size());
     EVec<<fIntegration*wIntegration,fClose*wClose,fConst*wConst,fBarrier*wBarrier;
-    //EVec.conservativeResize(fBarrier.size());
-    //EVec<<fBarrier;
     
-    //cout<<"fIntegration.head(10): "<<fIntegration.head(10)<<endl;
-    //cout<<"wIntegration: "<<wIntegration<<endl;
+    if (!computeJacobian)
+      return;
     
-  }
-  
-  
-  void jacobian(const Eigen::VectorXd& xAndCurrFieldSmall, Eigen::VectorXd& JVals){
-    using namespace Eigen;
-    using namespace std;
-    
-    VectorXd xAndCurrField = UExt*xAndCurrFieldSmall;
-    VectorXd xcurr=xAndCurrField.head(x0.size());
-    VectorXd currField=xAndCurrField.tail(rawField2Vec.size());
-    
-    //integration
     SparseMatrix<double> gIntegration;
     vector<Triplet<double>> gIntegrationTriplets;
     for (int k=0; k<G2.outerSize(); ++k)
@@ -108,7 +189,6 @@ public:
     gIntegration.setFromTriplets(gIntegrationTriplets.begin(), gIntegrationTriplets.end());
     gIntegration=gIntegration*UExt;
     
-    //closeness
     SparseMatrix<double> gClose(currField.size(), xAndCurrField.size());
     vector<Triplet<double>> gCloseTriplets;
     for (int i=0;i<currField.size();i++)
@@ -117,7 +197,6 @@ public:
     gClose.setFromTriplets(gCloseTriplets.begin(), gCloseTriplets.end());
     gClose=gClose*UExt;
     
-    //fixedIndices constness
     SparseMatrix<double> gConst(fixedIndices.size(), xAndCurrField.size());
     vector<Triplet<double>> gConstTriplets;
     for (int i=0;i<fixedIndices.size();i++)
@@ -126,61 +205,27 @@ public:
     gConst.setFromTriplets(gConstTriplets.begin(), gConstTriplets.end());
     gConst=gConst*UExt;
     
-    //barrier
-    VectorXd splineDerivative= VectorXd::Zero(N*FN.rows(),1);
-    VectorXd fBarrier = VectorXd::Zero(N*FN.rows());
-    VectorXd barSpline = VectorXd::Zero(N*FN.rows());
-    SImagField.conservativeResize(IImagField.rows(), IImagField.cols());
-    for (int i=0;i<FN.rows();i++){
-      for (int j=0;j<N;j++){
-        RowVector2d currVec=currField.segment(2*N*i+2*j,2);
-        RowVector2d nextVec=currField.segment(2*N*i+2*((j+1)%N),2);
-        double imagProduct = (currVec(0)*nextVec(1) - currVec(1)*nextVec(0))/origFieldVolumes(i,j);
-        double barResult = (imagProduct/s)*(imagProduct/s)*(imagProduct/s) - 3.0*(imagProduct/s)*(imagProduct/s) + 3.0*(imagProduct/s);
-        double barResult2 = 1.0/barResult - 1.0;
-        if (imagProduct<=0) barResult2 = std::numeric_limits<double>::infinity();
-        if (imagProduct>=s) barResult2 = 0.0;
-        fBarrier(N*i+j)=barResult2;
-        barSpline(N*i+j)=barResult;
-        
-        double splineDerivativeLocal=3.0*(imagProduct*imagProduct/(s*s*s)) -6.0*(imagProduct/(s*s)) + 3.0/s;
-        if (imagProduct<=0) splineDerivativeLocal=std::numeric_limits<double>::infinity();
-        if (imagProduct>=s) splineDerivativeLocal=0.0;
-        splineDerivative(N*i+j)=splineDerivativeLocal;
-        
-        SImagField.row(N*i+j)<<nextVec(1)/origFieldVolumes(i,j), -nextVec(0)/origFieldVolumes(i,j), -currVec(1)/origFieldVolumes(i,j),currVec(0)/origFieldVolumes(i,j);
-        
-      }
-    }
     
-    /*cout<<"xAndCurrFieldSmall: "<<xAndCurrFieldSmall<<endl;
-    
-    cout<<"IImagField: "<<IImagField<<endl;
-    cout<<"JImagField: "<<JImagField<<endl;
-    cout<<"SImagField: "<<SImagField<<endl;*/
     SparseMatrix<double> gImagField(N*FN.rows(), currField.size());
     vector<Triplet<double>> gImagTriplets;
-    //cout<<"IImagField.maxCoeff(): "<<IImagField.maxCoeff()<<endl;
-    //cout<<"JImagField.maxCoeff(): "<<JImagField.maxCoeff()<<endl;
+    
     for (int i=0;i<IImagField.rows();i++)
       for (int j=0;j<IImagField.cols();j++)
         gImagTriplets.push_back(Triplet<double>(IImagField(i,j), JImagField(i,j), SImagField(i,j)));
     
     gImagField.setFromTriplets(gImagTriplets.begin(), gImagTriplets.end());
     
-    //cout<<"fBarrier(11): "<<fBarrier(11)<<endl;
-    //cout<<"fBarrierDerivative(11): "<<fBarrierDerivative(11)<<endl;
+    
     SparseMatrix<double> gFieldReduction = gClose;
     VectorXd barDerVec=-splineDerivative.array()/((barSpline.array()*barSpline.array()).array());
-    //cout<<"barDerVec(11): "<<barDerVec(11)<<endl;
     /*barDerVec(fBarrier==Inf)=Inf;
-    barDerVec(isinf(barDerVec))=0;
-    barDerVec(isnan(barDerVec))=0;*/
+     barDerVec(isinf(barDerVec))=0;
+     barDerVec(isnan(barDerVec))=0;*/
     for (int i=0;i<fBarrier.size();i++)
       if (std::abs(fBarrier(i))<10e-9)
         barDerVec(i)=0.0;
-    else if (fBarrier(i)==std::numeric_limits<double>::infinity())
-      barDerVec(i)=std::numeric_limits<double>::infinity();
+      else if (fBarrier(i)==std::numeric_limits<double>::infinity())
+        barDerVec(i)=std::numeric_limits<double>::infinity();
     
     SparseMatrix<double> gBarrierFunc(barDerVec.size(), barDerVec.size());
     vector<Triplet<double>> gBarrierFuncTris;
@@ -197,41 +242,13 @@ public:
     JMats.push_back(gClose*wClose);
     JMats.push_back(gConst*wConst);
     JMats.push_back(gBarrier*wBarrier);
-    SparseMatrix<double> J;
     SaddlePoint::sparse_block(blockIndices, JMats,J);
-    //J=gBarrier;
-    //cout<<"gBarrier: "<<gBarrier<<endl;
-    /*cout<<"gIntegration.rows(): "<<gIntegration.rows()<<endl;
-    cout<<"gClose.rows(): "<<gClose.rows()<<endl;
-    cout<<"gConst.rows(): "<<gConst.rows()<<endl;
-    cout<<"gBarrier.rows(): "<<gBarrier.rows()<<endl;*/
     
-    JRows.conservativeResize(J.nonZeros());
-    JCols.conservativeResize(J.nonZeros());
-    JVals.conservativeResize(J.nonZeros());
-    int counter=0;
-    SparseMatrix<double> JT=J.transpose();
-    for (int k=0; k<JT.outerSize(); ++k)
-      for (SparseMatrix<double>::InnerIterator it(JT,k); it; ++it){
-        JRows(counter)=it.col();
-        JCols(counter)=it.row();
-        JVals(counter++)=it.value();
-      }
-    
-    //cout<<"JRows.maxCoeff(): "<<JRows.maxCoeff()<<endl;
-    //cout<<"JCols.maxCoeff(): "<<JCols.maxCoeff()<<endl;
-    //cout<<"done!" <<endl;
-    
-    
-  }
-  bool post_optimization(const Eigen::VectorXd& x){
-    //std::cout<<"x:"<<x<<std::endl;
-  
-    return true;
+   
   }
   
-  
-  void init(){
+  void init()
+  {
     using namespace std;
     using namespace Eigen;
     
@@ -256,9 +273,7 @@ public:
     paramLength/=avgGradNorm;
     
     igl::local_basis(V,F,B1,B2, FN);
-    //cout<<"B1.block(0,0,10,3): "<<B1.block(0,0,10,3)<<endl;
-    //cout<<"B2.block(0,0,10,3): "<<B2.block(0,0,10,3)<<endl;
-    
+
     //creating G2
     vector<Triplet<double>> reducMatTris;
     SparseMatrix<double> reducMat;
@@ -274,10 +289,7 @@ public:
     reducMat.resize(2*N*F.rows(), 3*N*F.rows());
     reducMat.setFromTriplets(reducMatTris.begin(), reducMatTris.end());
     G2=reducMat*G;
-    
-    //for (int k=0; k<reducMat.outerSize(); ++k)
-    //     for (SparseMatrix<double>::InnerIterator it(reducMat,k); it; ++it)
-     //      cout<<it.row()<<","<<it.col()<<","<<it.value()<<";"<<endl;
+  
     
     //Reducing constraint matrix
     VectorXi I(C.nonZeros()),J(C.nonZeros());
@@ -293,62 +305,59 @@ public:
         S(counter++)=it.value();
       }
     
-    //cout<<"I: "<<I<<endl;
-    //cout<<"J: "<<J<<endl;
-    // cout<<"S: "<<S<<endl;
     /**
-    //creating small dense matrix with all non-zero columns
-    VectorXi uniqueJVec(uniqueJ.size());
-    VectorXi JMask=VectorXi::Constant(C.cols(),-1);
-    counter=0;
-    for (set<int>::iterator ji=uniqueJ.begin();ji!=uniqueJ.end();ji++){
-      uniqueJVec(counter)=*ji;
-      JMask(*ji)=counter++;
-    }
-    
-    //cout<<"uniqueJVec: "<<uniqueJVec<<endl;
-    
-    MatrixXd CSmall=MatrixXd::Zero(C.rows(), JMask.maxCoeff()+1);
-    for (int i=0;i<I.rows();i++)
-      CSmall(I(i),JMask(J(i)))=S(i);
-    
-    //cout<<"CSmall: "<<CSmall<<endl;
-    
-    
-    FullPivLU<MatrixXd> lu_decomp(CSmall);
-    MatrixXd USmall=lu_decomp.kernel();
-    
-    //cout<<"USmall: "<<USmall<<endl;
-    
-    
-    //converting into the big matrix
-    VectorXi nonPartIndices, stub;
-    VectorXi allIndices(C.cols());
-    for (int i=0;i<allIndices.size();i++) allIndices(i)=i;
-    igl::setdiff(allIndices, uniqueJVec, nonPartIndices, stub);
-    
-    SparseMatrix<double> URaw(nonPartIndices.size()+USmall.rows(),nonPartIndices.size()+USmall.cols());
-    vector<Triplet<double>> URawTriplets;
-    for (int i=0;i<nonPartIndices.size();i++)
-      URawTriplets.push_back(Triplet<double>(i,i,1.0));
-    
-    for (int i=0;i<USmall.rows();i++)
-      for (int j=0;j<USmall.cols();j++)
-        URawTriplets.push_back(Triplet<double>(nonPartIndices.size()+i,nonPartIndices.size()+j,USmall(i,j)));
-    
-    URaw.setFromTriplets(URawTriplets.begin(), URawTriplets.end());
-    
-    SparseMatrix<double> permMat(URaw.rows(),URaw.rows());
-    vector<Triplet<double>> permMatTriplets;
-    for (int i=0;i<nonPartIndices.size();i++)
-      permMatTriplets.push_back(Triplet<double>(nonPartIndices(i),i,1.0));
-    
-    for (int i=0;i<uniqueJVec.size();i++)
-      permMatTriplets.push_back(Triplet<double>(uniqueJVec(i),nonPartIndices.size()+i,1.0));
-    
-    permMat.setFromTriplets(permMatTriplets.begin(), permMatTriplets.end());
-    
-    UFull=permMat*URaw;
+     //creating small dense matrix with all non-zero columns
+     VectorXi uniqueJVec(uniqueJ.size());
+     VectorXi JMask=VectorXi::Constant(C.cols(),-1);
+     counter=0;
+     for (set<int>::iterator ji=uniqueJ.begin();ji!=uniqueJ.end();ji++){
+     uniqueJVec(counter)=*ji;
+     JMask(*ji)=counter++;
+     }
+     
+     //cout<<"uniqueJVec: "<<uniqueJVec<<endl;
+     
+     MatrixXd CSmall=MatrixXd::Zero(C.rows(), JMask.maxCoeff()+1);
+     for (int i=0;i<I.rows();i++)
+     CSmall(I(i),JMask(J(i)))=S(i);
+     
+     //cout<<"CSmall: "<<CSmall<<endl;
+     
+     
+     FullPivLU<MatrixXd> lu_decomp(CSmall);
+     MatrixXd USmall=lu_decomp.kernel();
+     
+     //cout<<"USmall: "<<USmall<<endl;
+     
+     
+     //converting into the big matrix
+     VectorXi nonPartIndices, stub;
+     VectorXi allIndices(C.cols());
+     for (int i=0;i<allIndices.size();i++) allIndices(i)=i;
+     igl::setdiff(allIndices, uniqueJVec, nonPartIndices, stub);
+     
+     SparseMatrix<double> URaw(nonPartIndices.size()+USmall.rows(),nonPartIndices.size()+USmall.cols());
+     vector<Triplet<double>> URawTriplets;
+     for (int i=0;i<nonPartIndices.size();i++)
+     URawTriplets.push_back(Triplet<double>(i,i,1.0));
+     
+     for (int i=0;i<USmall.rows();i++)
+     for (int j=0;j<USmall.cols();j++)
+     URawTriplets.push_back(Triplet<double>(nonPartIndices.size()+i,nonPartIndices.size()+j,USmall(i,j)));
+     
+     URaw.setFromTriplets(URawTriplets.begin(), URawTriplets.end());
+     
+     SparseMatrix<double> permMat(URaw.rows(),URaw.rows());
+     vector<Triplet<double>> permMatTriplets;
+     for (int i=0;i<nonPartIndices.size();i++)
+     permMatTriplets.push_back(Triplet<double>(nonPartIndices(i),i,1.0));
+     
+     for (int i=0;i<uniqueJVec.size();i++)
+     permMatTriplets.push_back(Triplet<double>(uniqueJVec(i),nonPartIndices.size()+i,1.0));
+     
+     permMat.setFromTriplets(permMatTriplets.begin(), permMatTriplets.end());
+     
+     UFull=permMat*URaw;
      **/
     
     //cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
@@ -382,8 +391,8 @@ public:
       }
     }
     
-    cout<<"min origFieldVolumes: "<<origFieldVolumes.colwise().minCoeff()<<endl;
-    cout<<"origFieldVolumes.row(0): "<<origFieldVolumes.row(0)<<endl;
+    //cout<<"min origFieldVolumes: "<<origFieldVolumes.colwise().minCoeff()<<endl;
+    //cout<<"origFieldVolumes.row(0): "<<origFieldVolumes.row(0)<<endl;
     
     //Generating naive poisson solution
     SparseMatrix<double> Mx;
@@ -426,7 +435,7 @@ public:
     VectorXd initXSmall=initXSmallFull.head(UFull.cols());
     
     double initialIntegrationError = (rawField2Vec - paramLength*G2*UFull*initXSmall).template lpNorm<Infinity>();
-    std::cout<<"initialIntegrationError: "<<initialIntegrationError<<std::endl;
+    //std::cout<<"initialIntegrationError: "<<initialIntegrationError<<std::endl;
     
     x0=UFull*initXSmall;
     
@@ -444,14 +453,12 @@ public:
     UExt.resize(UFull.rows()+rawField2Vec.size(), UFull.cols()+rawField2Vec.size());
     UExt.setFromTriplets(UExtTriplets.begin(), UExtTriplets.end());
     
-    //restarting rows cols and vals
-    VectorXd JVals;
-    jacobian(Eigen::VectorXd::Random(UExt.cols()), JVals);
     
     xSize = UExt.cols();
     
   }
 };
+
 
 
 

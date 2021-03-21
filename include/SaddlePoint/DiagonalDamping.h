@@ -7,6 +7,7 @@
 // obtain one at http://mozilla.org/MPL/2.0/.
 #ifndef SADDLEPOINT_DIAGONAL_DAMPING_H
 #define SADDLEPOINT_DIAGONAL_DAMPING_H
+#include <igl/diag.h>
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <string>
@@ -20,31 +21,33 @@ template<class SolverTraits>
 class DiagonalDamping{
 public:
   double currLambda;
-  void init(const Eigen::VectorXi& HRows,
-            const Eigen::VectorXi& HCols,
-            const Eigen::VectorXd& HVals,
+  void init(const Eigen::SparseMatrix<double>& H,
             const Eigen::VectorXd& initSolution,
-            Eigen::VectorXd& dampVector){
+            Eigen::SparseMatrix<double>& D){
+    
     
     //collecting the diagonal values
-    dampVector=Eigen::VectorXd::Zero(initSolution.size());
-    for (int i=0;i<HRows.size();i++)
-      if (HRows(i)==HCols(i))  //a diagonal value
-        dampVector(HRows(i))+=currLambda*HVals(i);
+    Eigen::VectorXd dampVector=Eigen::VectorXd::Zero(initSolution.size());
+    for (int k=0; k<H.outerSize(); ++k){
+      for (Eigen::SparseMatrix<double>::InnerIterator it(H,k); it; ++it){
+        if (it.row()==it.col()) //a diagonal value
+          dampVector(it.row())+=currLambda*it.value();
+      }
+    }
+    igl::diag(dampVector, D);
   }
   
   bool update(SolverTraits& ST,
-              const Eigen::VectorXi& HRows,
-              const Eigen::VectorXi& HCols,
-              const Eigen::VectorXd& HVals,
+              const Eigen::SparseMatrix<double>& H,
               const Eigen::VectorXd& currSolution,
               const Eigen::VectorXd& direction,
-              Eigen::VectorXd& dampVector){
+              Eigen::SparseMatrix<double>& D){
     
     Eigen::VectorXd EVec;
-    ST.objective(currSolution,EVec);
+    Eigen::SparseMatrix<double> J;
+    ST.objective_jacobian(currSolution,EVec, J, false);
     double prevEnergy2=EVec.squaredNorm();
-    ST.objective(currSolution+direction,EVec);
+    ST.objective_jacobian(currSolution+direction,EVec, J, false);
     double newEnergy2=EVec.squaredNorm();
     //std::cout<<"prevEnergy2: "<<prevEnergy2<<std::endl;
     //std::cout<<"newEnergy2: "<<newEnergy2<<std::endl;
@@ -56,10 +59,14 @@ public:
     
     std::cout<<"currLambda: "<<currLambda<<std::endl;
     
-    dampVector=Eigen::VectorXd::Zero(currSolution.size());
-    for (int i=0;i<HRows.size();i++)
-      if (HRows(i)==HCols(i))  //a diagonal value
-        dampVector(HRows(i))+=currLambda*HVals(i);
+    Eigen::VectorXd dampVector=Eigen::VectorXd::Zero(currSolution.size());
+    for (int k=0; k<H.outerSize(); ++k)
+      for (Eigen::SparseMatrix<double>::InnerIterator it(H,k); it; ++it){
+        if (it.row()==it.col()) //a diagonal value
+          dampVector(it.row())+=currLambda*it.value();
+      }
+    
+    igl::diag(dampVector, D);
     
     //dampVector=Eigen::VectorXd::Constant(currSolution.size(),currLambda);
     
