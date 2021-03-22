@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
   igl::deserialize(slTraits.singularIndices,"singularIndices",filename);
   igl::deserialize(slTraits.b,"b",filename);
   igl::deserialize(slTraits.C,"C",filename);
-  igl::deserialize(slTraits.UFull,"UFull",filename);
+  //igl::deserialize(slTraits.UFull,"UFull",filename);
   igl::deserialize(slTraits.G,"G",filename);
   igl::deserialize(slTraits.FN,"FN",filename);
   igl::deserialize(slTraits.N,"N",filename);
@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
   //cout<<"initialSolutionLMSolver.x.head(10): "<<initialSolutionLMSolver.x.head(10)<<endl;
   
   //Iterative rounding
-  irTraits.init(slTraits, initialSolutionLMSolver.x, true);
+  irTraits.init(slTraits, initialSolutionLMSolver.x, false);
   
   bool success=true;
   int i=0;

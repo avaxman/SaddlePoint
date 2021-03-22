@@ -305,7 +305,7 @@ public:
         S(counter++)=it.value();
       }
     
-    /**
+    
      //creating small dense matrix with all non-zero columns
      VectorXi uniqueJVec(uniqueJ.size());
      VectorXi JMask=VectorXi::Constant(C.cols(),-1);
@@ -358,9 +358,8 @@ public:
      permMat.setFromTriplets(permMatTriplets.begin(), permMatTriplets.end());
      
      UFull=permMat*URaw;
-     **/
-    
-    //cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
+     
+    cout<<"(C*UFull).lpNorm<Infinity>(): "<<(C*UFull).norm()<<endl;
     
     //computing original volumes and (row,col) of that functional
     
