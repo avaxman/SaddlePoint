@@ -42,6 +42,11 @@ namespace SaddlePoint
     double funcTolerance;
     double fooTolerance;
     
+    
+    //always updated to the current iteration
+    double energy;
+    double fooOptimality;
+    
   public:
     
     LMSolver(){};
@@ -114,11 +119,11 @@ namespace SaddlePoint
         //multiply_adjoint_vector(ST->JRows, ST->JCols, JVals, -EVec, rhs);
         rhs = -(Jt*EVec);
         
-        double firstOrderOptimality=rhs.template lpNorm<Infinity>();
+        fooOptimality=rhs.template lpNorm<Infinity>();
         if (verbose)
-          cout<<"firstOrderOptimality: "<<firstOrderOptimality<<endl;
+          cout<<"firstOrderOptimality: "<<fooOptimality<<endl;
         
-        if (firstOrderOptimality<fooTolerance){
+        if (fooOptimality<fooTolerance){
           x=prevx;
           if (verbose){
             cout<<"First-order optimality has been reached"<<endl;
@@ -153,6 +158,8 @@ namespace SaddlePoint
         ST->objective_jacobian(prevx+direction,EVec, J, false);
         double newEnergy2=EVec.squaredNorm();
         
+        energy=newEnergy2;
+        
         if (prevEnergy2>newEnergy2){
           x=prevx+direction;{
             if (std::abs(prevEnergy2-newEnergy2)<funcTolerance){
@@ -164,9 +171,10 @@ namespace SaddlePoint
           
         }else
           x=prevx;
-        
-        cout<<"New energy: "<<EVec.squaredNorm()<<endl;
+        if (verbose)
+          cout<<"New energy: "<<energy<<endl;
         ST->objective_jacobian(x,EVec, J, true);
+        energy=EVec.squaredNorm();
         Jt=J.transpose();
         JtJ = Jt*J;
         

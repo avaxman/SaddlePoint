@@ -57,7 +57,7 @@ public:
     else
       currLambda*=10.0;
     
-    std::cout<<"currLambda: "<<currLambda<<std::endl;
+    //std::cout<<"currLambda: "<<currLambda<<std::endl;
     
     Eigen::VectorXd dampVector=Eigen::VectorXd::Zero(currSolution.size());
     for (int k=0; k<H.outerSize(); ++k)
