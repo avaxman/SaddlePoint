@@ -21,33 +21,38 @@ template<class SolverTraits>
 class DiagonalDamping{
 public:
   double currLambda;
-  void init(const Eigen::SparseMatrix<double>& H,
+  void init(const Eigen::SparseMatrix<double>& J,
             const Eigen::VectorXd& initSolution,
-            Eigen::SparseMatrix<double>& D){
+            Eigen::SparseMatrix<double>& dampJ){
     
     
     //collecting the diagonal values
     Eigen::VectorXd dampVector=Eigen::VectorXd::Zero(initSolution.size());
-    for (int k=0; k<H.outerSize(); ++k){
-      for (Eigen::SparseMatrix<double>::InnerIterator it(H,k); it; ++it){
-        if (it.row()==it.col()) //a diagonal value
-          dampVector(it.row())+=currLambda*it.value();
+    std::vector<Eigen::Triplet<double>> dampJTris;
+    for (int k=0; k<J.outerSize(); ++k){
+      for (Eigen::SparseMatrix<double>::InnerIterator it(J,k); it; ++it){
+        dampVector(it.col())+=currLambda*it.value()*it.value();
+        dampJTris.push_back(Eigen::Triplet<double>(it.row(), it.col(), it.value()));
       }
     }
-    igl::diag(dampVector, D);
+    for (int i=0;i<dampVector.size();i++)
+      dampJTris.push_back(Eigen::Triplet<double>(J.rows()+i,i,sqrt(dampVector(i))));
+    
+    dampJ.conservativeResize(J.rows()+dampVector.size(),J.cols());
+    dampJ.setFromTriplets(dampJTris.begin(), dampJTris.end());
   }
   
   bool update(SolverTraits& ST,
-              const Eigen::SparseMatrix<double>& H,
+              const Eigen::SparseMatrix<double>& J,
               const Eigen::VectorXd& currSolution,
               const Eigen::VectorXd& direction,
-              Eigen::SparseMatrix<double>& D){
+              Eigen::SparseMatrix<double>& dampJ){
     
     Eigen::VectorXd EVec;
-    Eigen::SparseMatrix<double> J;
-    ST.objective_jacobian(currSolution,EVec, J, false);
+    Eigen::SparseMatrix<double> stubJ;
+    ST.objective_jacobian(currSolution,EVec, stubJ, false);
     double prevEnergy2=EVec.squaredNorm();
-    ST.objective_jacobian(currSolution+direction,EVec, J, false);
+    ST.objective_jacobian(currSolution+direction,EVec, stubJ, false);
     double newEnergy2=EVec.squaredNorm();
     //std::cout<<"prevEnergy2: "<<prevEnergy2<<std::endl;
     //std::cout<<"newEnergy2: "<<newEnergy2<<std::endl;
@@ -56,17 +61,20 @@ public:
       currLambda/=10.0;
     else
       currLambda*=10.0;
-    
-    //std::cout<<"currLambda: "<<currLambda<<std::endl;
-    
+    //collecting the diagonal values
     Eigen::VectorXd dampVector=Eigen::VectorXd::Zero(currSolution.size());
-    for (int k=0; k<H.outerSize(); ++k)
-      for (Eigen::SparseMatrix<double>::InnerIterator it(H,k); it; ++it){
-        if (it.row()==it.col()) //a diagonal value
-          dampVector(it.row())+=currLambda*it.value();
+    std::vector<Eigen::Triplet<double>> dampJTris;
+    for (int k=0; k<J.outerSize(); ++k){
+      for (Eigen::SparseMatrix<double>::InnerIterator it(J,k); it; ++it){
+        dampVector(it.col())+=currLambda*it.value()*it.value();
+        dampJTris.push_back(Eigen::Triplet<double>(it.row(), it.col(), it.value()));
       }
+    }
+    for (int i=0;i<dampVector.size();i++)
+      dampJTris.push_back(Eigen::Triplet<double>(J.rows()+i,i,sqrt(dampVector(i))));
     
-    igl::diag(dampVector, D);
+    dampJ.conservativeResize(J.rows()+dampVector.size(),J.cols());
+    dampJ.setFromTriplets(dampJTris.begin(), dampJTris.end());
     
     //dampVector=Eigen::VectorXd::Constant(currSolution.size(),currLambda);
     

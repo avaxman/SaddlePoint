@@ -53,8 +53,9 @@ namespace SaddlePoint
     
     bool factorize(const Eigen::SparseMatrix<double> _A){
       A=_A;
-      solver.analyzePattern(A);
-      solver.factorize(A);
+      //solver.analyzePattern(A);
+      //solver.factorize(A);
+      solver.compute(A);
       return (solver.info()==Eigen::Success);
     }
     
@@ -65,6 +66,14 @@ namespace SaddlePoint
       x.conservativeResize(A.cols(), rhs.cols());
       for (int i=0;i<rhs.cols();i++)
         x.col(i) = solver.solve(rhs.col(i));
+      return true;
+    }
+    
+    bool solve(const Eigen::VectorXd& rhs,
+               Eigen::VectorXd& x){
+      
+      //cout<<"Rhs: "<<rhs<<endl;
+      x = solver.solve(rhs);
       return true;
     }
   };

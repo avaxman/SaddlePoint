@@ -97,19 +97,16 @@ namespace SaddlePoint
         cout<<"******Beginning Optimization******"<<endl;
       
       //estimating initial miu
-      SparseMatrix<double> dampMatrix;
+      SparseMatrix<double> dampJ;
       VectorXd EVec;
-      SparseMatrix<double> J, Jt, JtJ;
+      SparseMatrix<double> J;
       
       currIter=0;
       stop=false;
       ST->objective_jacobian(prevx, EVec, J, true);
-      Jt=J.transpose();
-      JtJ = Jt*J;
-      
-      DT->init(JtJ, prevx, dampMatrix);
-      JtJ=JtJ+dampMatrix;
-      
+
+      DT->init(J, prevx, dampJ);
+
       do{
         ST->pre_iteration(prevx);
         
@@ -117,7 +114,7 @@ namespace SaddlePoint
           cout<<"Initial objective for Iteration "<<currIter<<": "<<EVec.squaredNorm()<<endl;
         
         //multiply_adjoint_vector(ST->JRows, ST->JCols, JVals, -EVec, rhs);
-        rhs = -(Jt*EVec);
+        rhs = -(J.transpose()*EVec);
         
         fooOptimality=rhs.template lpNorm<Infinity>();
         if (verbose)
@@ -131,19 +128,20 @@ namespace SaddlePoint
           }
         }
         
-        //solving to get the GN direction
-        if(!LS->factorize(JtJ)) {
+        //trying to do A'*A manually
+        //SparseMatrix<double,RowMajor> Jt=dampJ.transpose();
+        //SparseMatrix<double> JtJ = Jt*dampJ;
+        
+        //solving to get the LM direction
+        if(!LS->factorize(dampJ.transpose()*dampJ)) {
           // decomposition failed
           cout<<"Solver Failed to factorize! "<<endl;
           return false;
         }
         
-        MatrixXd mRhs=rhs;
-        MatrixXd mDirection;
-        LS->solve(mRhs,mDirection);
-        //cout<<"mRhs.maxCoeff(): "<<mRhs.maxCoeff()<<endl;
-        direction=mDirection.col(0);
-        //cout<<"direction.tail(100): "<<direction.tail(100)<<endl;
+
+        LS->solve(rhs,direction);
+       
         if (verbose)
           cout<<"direction magnitude: "<<direction.norm()<<endl;
         if (direction.norm() < funcTolerance){
@@ -175,12 +173,10 @@ namespace SaddlePoint
           cout<<"New energy: "<<energy<<endl;
         ST->objective_jacobian(x,EVec, J, true);
         energy=EVec.squaredNorm();
-        Jt=J.transpose();
-        JtJ = Jt*J;
+       
         
-        DT->update(*ST, JtJ,  prevx, direction, dampMatrix);
-        JtJ=JtJ+dampMatrix;
-        
+        DT->update(*ST, J,  prevx, direction, dampJ);
+  
         //The SolverTraits can order the optimization to stop by giving "true" of to continue by giving "false"
         if (ST->post_iteration(x)){
           if (verbose)
