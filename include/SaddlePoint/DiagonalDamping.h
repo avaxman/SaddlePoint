@@ -23,6 +23,7 @@ public:
   double currLambda;
   void init(const Eigen::SparseMatrix<double>& J,
             const Eigen::VectorXd& initSolution,
+            const bool verbose,
             Eigen::SparseMatrix<double>& dampJ){
     
     
@@ -40,12 +41,16 @@ public:
     
     dampJ.conservativeResize(J.rows()+dampVector.size(),J.cols());
     dampJ.setFromTriplets(dampJTris.begin(), dampJTris.end());
+    
+    if (verbose)
+      std::cout<<"Initial Lambda: "<<currLambda<<std::endl;
   }
   
   bool update(SolverTraits& ST,
               const Eigen::SparseMatrix<double>& J,
               const Eigen::VectorXd& currSolution,
               const Eigen::VectorXd& direction,
+              const bool verbose,
               Eigen::SparseMatrix<double>& dampJ){
     
     Eigen::VectorXd EVec;
@@ -61,6 +66,9 @@ public:
       currLambda/=10.0;
     else
       currLambda*=10.0;
+    
+    if (verbose)
+      std::cout<<"Current Lambda: "<<currLambda<<std::endl;
     //collecting the diagonal values
     Eigen::VectorXd dampVector=Eigen::VectorXd::Zero(currSolution.size());
     std::vector<Eigen::Triplet<double>> dampJTris;

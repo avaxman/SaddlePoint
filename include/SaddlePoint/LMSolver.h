@@ -46,6 +46,7 @@ namespace SaddlePoint
     //always updated to the current iteration
     double energy;
     double fooOptimality;
+    int currIter;
     
   public:
     
@@ -88,7 +89,6 @@ namespace SaddlePoint
       using namespace std;
       ST->initial_solution(x0);
       prevx<<x0;
-      int currIter=0;
       bool stop=false;
       //double currError, prevError;
       VectorXd rhs(ST->xSize);
@@ -105,7 +105,7 @@ namespace SaddlePoint
       stop=false;
       ST->objective_jacobian(prevx, EVec, J, true);
 
-      DT->init(J, prevx, dampJ);
+      DT->init(J, prevx, verbose, dampJ);
 
       do{
         ST->pre_iteration(prevx);
@@ -175,7 +175,7 @@ namespace SaddlePoint
         energy=EVec.squaredNorm();
        
         
-        DT->update(*ST, J,  prevx, direction, dampJ);
+        DT->update(*ST, J,  prevx, direction, verbose, dampJ);
   
         //The SolverTraits can order the optimization to stop by giving "true" of to continue by giving "false"
         if (ST->post_iteration(x)){
@@ -186,7 +186,7 @@ namespace SaddlePoint
         currIter++;
         prevx=x;
       }while (currIter<=maxIterations);
-      
+  
       return false;
     }
   };
